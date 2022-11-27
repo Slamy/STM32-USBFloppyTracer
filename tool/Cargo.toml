@@ -1,0 +1,16 @@
+[package]
+authors = ["Slamy <palmchen1000@web.de>"]
+edition = "2018"
+readme = "README.md"
+name = "usbfloppytracer"
+version = "0.1.0"
+
+[dependencies]
+cassette = "0.2.3"
+clap = { version = "4.0.27", features = ["derive"] }
+md5 = "0.7.0"
+rusb = "0.9.1"
+util = { path = "../util" }
+
+[build-dependencies]
+bindgen = "0.63.0"

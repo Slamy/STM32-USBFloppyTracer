@@ -1,0 +1,15 @@
+[package]
+authors = ["Slamy <palmchen1000@web.de>"]
+edition = "2018"
+readme = "README.md"
+name = "util"
+version = "0.1.0"
+
+[dependencies]
+alloc-cortex-m = "0.4.2"
+heapless = "0.7.16"
+ouroboros = "0.15.5"
+
+[dev-dependencies]
+crc16 = "0.4.0"
+csv = "1.1.6"

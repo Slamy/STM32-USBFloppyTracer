@@ -1,0 +1,42 @@
+
+https://ferrous-systems.com/blog/test-embedded-app/
+https://rtic.rs/stable/api/heapless/index.html#
+
+http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node018F.html
+https://en.wikipedia.org/wiki/Write_precompensation
+http://info-coach.fr/atari/hardware/FD-Hard.php#WD1772
+https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
+
+
+Timers are counting with 84 MHz / 11.9 ns period
+
+HD Disk MFM cell size is 1 us which is 84 in raw counter value.
+HD Disk Minimum Duration between two pulses is 2 us which is 168 in raw counter values.
+DD Disk MFM cell size is 2 us which is 168 in raw counter value.
+DD Disk Minimum Duration between two pulses is 4 us which is 336 in raw counter value.
+
+C64 Times for the 1541 because of different speed zones:
+7692 bytes of raw cell size, 3.25 us per cell, 227 raw counter value
+7142 bytes of raw cell size, 3.50 us per cell, 245 raw counter value
+6666 bytes of raw cell size, 3.75 us per cell, 262 raw counter value
+6250 bytes of raw cell size, 4.00 us per cell, 280 raw counter value
+
+
+How a track is written and verified:
+
+Transfer a track as flux cells from PC to Controller. (This only works with constant cell size)
+Flux cell data is a more efficient way of storing flux changes than transfering actual timing data.
+The easy part is writing: Wait for the index pulse and write the track as raw cells converted to flux durations.
+
+Now verify:
+Start reading the track on the next index pulse for the verification process.
+Now things get ugly as we can't rely on sync words to synchronize on the data stream
+as some copy protections use non standard sync words.
+
+While the track is read via DMA, the CPU tries to match the read data with our expectations.
+The index pulse is not exact so this can vary. A window of groundtruth data is shifted over the read data.
+This is a folding operation. The window must be large enough to have significant data pulse duration changes inside.
+Lots of MFM Cells like 0xAA will not do here. The window must at least contain variation to allow proper synchronisation.
+
+As soon as a match is found, full verification can be performed without relying on faulty checksums (Amiga) or unknown sync markers (copy protections).
+It would be cool if this whole process can be completed by using only 2 revolutions per track. But the CPU must hurry for this.
