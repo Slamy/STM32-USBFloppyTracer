@@ -7,7 +7,7 @@ Also I don't like my old code base any more and wanted to have a cleaner softwar
 ## Compatibility and Differences to old project
 
 This project is 100% pin compatible with the [older version](https://github.com/Slamy/SlamySTM32Floppy).
-There is no need to alter anything.
+There is no need to resolder the old setup.
 
 ### Improvements to the old project:
 
@@ -24,7 +24,7 @@ There is no need to alter anything.
 
 ## How to connect the STM32F4Discovery board to the disk drive
 
-TODO
+![Pinout diagram of STM32F4Discovery board with floppy signals](doc/pinout.png)
 
 ## How to build and flash the firmware
 
@@ -54,7 +54,7 @@ Assuming drive A is a 3.5" drive: Writing of Amiga images
     usbfloppytracer -a Turrican.adf 
     usbfloppytracer -a Turrican.ipf 
 
-Assuming drive B is a 5 1/4" drive: Writing of C64 images
+Assuming drive B is a 5¼" drive: Writing of C64 images
 
     usbfloppytracer -b Katakis_s1.g64
     usbfloppytracer -b 'Katakis_(CPX).d64'
