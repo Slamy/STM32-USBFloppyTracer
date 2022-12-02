@@ -1,6 +1,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![feature(let_else)]
 
 use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
@@ -14,7 +15,7 @@ use std::slice::Iter;
 use std::time::Duration;
 use usb::init_usb;
 use util::bitstream::to_bit_stream;
-use util::fluxpulse::FluxPulseGenerator2;
+use util::fluxpulse::FluxPulseGenerator;
 use util::{Bit, Density, DriveSelectState, RawCellData};
 
 use crate::image_g64::parse_g64_image;
@@ -170,6 +171,19 @@ fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_track:
     }
 }
 
+fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
+    let (handle, endpoint_in, _endpoint_out) = handles;
+    let timeout = Duration::from_millis(10);
+    let mut in_buf = [0u8; 64];
+
+    loop {
+        let Ok(size) = handle.read_bulk(*endpoint_in, &mut in_buf, timeout) else {
+            return;
+        };
+        println!("Cleared residual USB buffer of size {}", size);
+    }
+}
+
 fn wait_for_answer(
     handles: &(DeviceHandle<Context>, u8, u8),
     verify_iterator: &mut Iter<RawTrack>,
@@ -217,7 +231,7 @@ fn check_writability(track: &RawTrack) {
 
     let track_offset = RefCell::new(0);
 
-    let mut write_prod_fpg = FluxPulseGenerator2::new(
+    let mut write_prod_fpg = FluxPulseGenerator::new(
         |f| {
             if f.0 > maximum_allowed_cell_size {
                 let current_track_offset = *track_offset.borrow();
@@ -279,7 +293,6 @@ fn main() {
     let mut tracks = parse_image(&cli.filepath);
 
     for track in tracks.iter() {
-        //println!("Check writability {}", track.cylinder);
         check_writability(track);
     }
 
@@ -291,6 +304,8 @@ fn main() {
         println!("Unable to initialize the USB device!");
         exit(1);
     });
+
+    clear_buffers(&usb_handles);
 
     if cli.a_drive && cli.b_drive {
         panic!("Specify either drive A or B. NOT BOTH!");

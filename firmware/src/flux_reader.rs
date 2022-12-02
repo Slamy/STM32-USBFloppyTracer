@@ -30,29 +30,15 @@ impl FluxReader {
         // The back buffer with new data will now be moved to current
         mem::swap(&mut self.current_buffer, &mut self.back_buffer);
 
-        //orange(true);
-        //return;
         for i in self.current_buffer.iter() {
             let duration = i.wrapping_sub(self.last_pulse_cnt);
-            //let duration = i - self.last_pulse_cnt;
-
-            //self.prod.enqueue(duration).expect_err("Queue is full!");
-
-            //assert!(duration < 6000);
             self.prod.enqueue(duration).unwrap();
-            //self.prod.enqueue(duration);
-
             self.last_pulse_cnt = *i;
         }
-        //orange(false);
     }
 
     pub fn dma1_stream1_irq(&mut self, cs: &CriticalSection) {
-        //safeiprintln!("DMA {}", self.dma1.borrow(cs).lisr.read().bits());
-
         if self.dma1.borrow(cs).lisr.read().tcif1().is_complete() {
-            //safeiprintln!("DMA1");
-
             self.dma_swapped_buffer_callback();
 
             self.dma1.borrow(cs).lifcr.write(|w| w.ctcif1().clear()); // Clear interrupt
@@ -60,7 +46,6 @@ impl FluxReader {
 
         if self.dma1.borrow(cs).lisr.read().teif1().is_error() {
             panic!("DMA Error");
-            self.dma1.borrow(cs).lifcr.write(|w| w.cteif1().clear());
         }
     }
 

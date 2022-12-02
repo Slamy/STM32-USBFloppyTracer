@@ -3,9 +3,8 @@ use crate::PulseDuration;
 use core::iter::Iterator;
 
 extern crate alloc;
-use alloc::boxed::Box;
 
-pub struct FluxPulseGenerator2<T>
+pub struct FluxPulseGenerator<T>
 where
     T: FnMut(PulseDuration),
 {
@@ -14,12 +13,12 @@ where
     pulse_accumulator: u32,
 }
 
-impl<T> FluxPulseGenerator2<T>
+impl<T> FluxPulseGenerator<T>
 where
     T: FnMut(PulseDuration),
 {
-    pub fn new(sink: T, cell_duration: u32) -> FluxPulseGenerator2<T> {
-        FluxPulseGenerator2 {
+    pub fn new(sink: T, cell_duration: u32) -> FluxPulseGenerator<T> {
+        FluxPulseGenerator {
             sink,
             cell_duration,
             pulse_accumulator: 0,
@@ -33,45 +32,6 @@ where
             (self.sink)(PulseDuration(self.pulse_accumulator as u16));
 
             self.pulse_accumulator = 0;
-        }
-    }
-}
-
-pub struct FluxPulseGenerator {
-    pub feeder: Box<dyn Iterator<Item = Bit>>,
-    cell_duration: u32,
-    wait_for_start: bool,
-}
-
-impl FluxPulseGenerator {
-    pub fn new(feeder: Box<dyn Iterator<Item = Bit>>, cell_duration: u32) -> FluxPulseGenerator {
-        FluxPulseGenerator {
-            feeder,
-            cell_duration,
-            wait_for_start: true,
-        }
-    }
-}
-
-impl Iterator for FluxPulseGenerator {
-    type Item = PulseDuration;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut pulse_accumulator: u32 = 0;
-        loop {
-            let bit = self.feeder.next()?;
-
-            pulse_accumulator += self.cell_duration;
-
-            if bit.0 {
-                if self.wait_for_start {
-                    self.wait_for_start = false;
-                    pulse_accumulator = 0;
-                } else {
-                    assert!(pulse_accumulator < 0xff00); // ensure that it fits in 16 bit
-                    return Some(PulseDuration(pulse_accumulator as u16));
-                }
-            }
         }
     }
 }
@@ -149,34 +109,16 @@ where
         }
     }
 }
-
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn cell_to_pulses_test() {
-        let v1: Vec<u8> = vec![1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1];
-        let bit_source = Box::new(v1.into_iter().map(|x| Bit(x == 1)));
-        let pulse_generator = FluxPulseGenerator::new(Box::new(bit_source), 100);
-        let result: Vec<PulseDuration> = pulse_generator.collect();
-        println!("{:?}", result);
-        assert_eq!(
-            result,
-            vec![
-                PulseDuration(300),
-                PulseDuration(200),
-                PulseDuration(100),
-                PulseDuration(500)
-            ]
-        );
-    }
 
     #[test]
     fn cell_to_pulses2_test() {
         let v1: Vec<u8> = vec![1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1];
         let mut result: Vec<PulseDuration> = Vec::new();
 
-        let mut pulse_generator = FluxPulseGenerator2::new(|f| result.push(f), 100);
+        let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f), 100);
         v1.into_iter()
             .for_each(|x| pulse_generator.feed(Bit(x == 1)));
 

@@ -10,19 +10,6 @@ const G64_SPEED_TABLE: [u32; 4] = [227, 245, 262, 280];
 
 // http://www.unusedino.de/ec64/technical/formats/g64.html
 
-fn file_read_u32_arr(mut f: &File, count: usize) -> Vec<u32> {
-    let mut byte_buffer: Vec<u8> = vec![0; count as usize * std::mem::size_of::<u32>()];
-    let bytes_read = f.read(&mut byte_buffer).unwrap();
-    assert_eq!(bytes_read, byte_buffer.capacity());
-
-    let u32_buffer: Vec<u32> = byte_buffer
-        .chunks_exact(std::mem::size_of::<u32>())
-        .map(|f| u32::from_le_bytes(f.try_into().unwrap()))
-        .collect();
-
-    u32_buffer
-}
-
 fn u8_buf_to_u32_buf(byte_buffer: &[u8]) -> Vec<u32> {
     let u32_buffer: Vec<u32> = byte_buffer
         .chunks_exact(std::mem::size_of::<u32>())

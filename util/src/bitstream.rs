@@ -1,10 +1,5 @@
 use crate::Bit;
 
-use core::iter::Iterator;
-
-extern crate alloc;
-use alloc::boxed::Box;
-
 pub struct BitStreamCollector<T>
 where
     T: FnMut(u8),
@@ -51,63 +46,10 @@ where
     }
 }
 
-pub struct BitStreamGenerator {
-    feeder: Box<dyn Iterator<Item = u8>>,
-    current_byte: u8,
-    counter: u8,
-}
-
-impl BitStreamGenerator {
-    pub fn new(feeder: Box<dyn Iterator<Item = u8>>) -> BitStreamGenerator {
-        BitStreamGenerator {
-            feeder,
-            current_byte: 0,
-            counter: 0,
-        }
-    }
-}
-
-impl Iterator for BitStreamGenerator {
-    type Item = Bit;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.counter == 0 {
-            //println!("Derp!");
-            self.current_byte = self.feeder.next()?;
-
-            //println!("Current Byte: {}",self.current_byte);
-            self.counter = 8;
-        }
-
-        let current_bit = Bit((self.current_byte & 0x80) != 0);
-
-        self.counter -= 1;
-        self.current_byte = self.current_byte << 1;
-
-        Some(current_bit)
-    }
-}
-
+#[cfg(test)]
 mod tests {
     use super::to_bit_stream;
-    use super::Bit;
-    use super::BitStreamGenerator;
     use alloc::vec;
-
-    #[test]
-    fn bitstream_test() {
-        let v1: Vec<u8> = vec![0x55, 0xaa];
-        let stream = BitStreamGenerator::new(Box::new(v1.into_iter()));
-        let result: Vec<Bit> = stream.collect();
-        println!("{:?}", result);
-        assert_eq!(
-            result,
-            vec![
-                false, true, false, true, false, true, false, true, // 0x55
-                true, false, true, false, true, false, true, false, // 0xaa
-            ]
-        );
-    }
 
     #[test]
     fn to_bit_stream_test() {

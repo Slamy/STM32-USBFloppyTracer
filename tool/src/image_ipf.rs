@@ -95,9 +95,6 @@ pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
                     slice::from_raw_parts(trackInf.trackbuf, trackInf.tracklen as usize).to_vec()
                 };
 
-                // println!("{:?}", trackInf);
-                // println!("{:x?}", trackbuf);
-
                 let mut densitymap;
                 if trackInf.type_ == ctitVar {
                     let timebuf = unsafe {
@@ -111,8 +108,6 @@ pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
                             ((d.cell_size.0 as f64) * auto_cell_size / 1000.0) as u16,
                         );
                     });
-
-                    //println!("{:?}", densitymap);
                 } else {
                     densitymap = vec![DensityMapEntry {
                         number_of_cells: trackbuf.len() as usize,

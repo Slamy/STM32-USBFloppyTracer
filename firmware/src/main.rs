@@ -2,49 +2,35 @@
 #![no_main]
 #![feature(default_alloc_error_handler)]
 
-use alloc::boxed::Box;
-
-use alloc::format;
-use alloc::vec::Vec;
-
-use flux_reader::FluxReader;
-use flux_writer::FluxWriter;
-
-use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PinState, PushPull};
-
-use core::borrow::{Borrow, BorrowMut};
-use core::cell::RefCell;
-
-use cortex_m::interrupt::Mutex;
-use cortex_m::iprintln;
-use cortex_m_rt::entry;
-use heapless::spsc::Queue;
-use stm32f4xx_hal::otg_fs::USB;
-use stm32f4xx_hal::pac::Interrupt;
-use stm32f4xx_hal::{pac, prelude::*};
-use usb_device::class_prelude::UsbBusAllocator;
-use usb_device::prelude::*;
-use usbd_serial::SerialPort;
-
-use cassette::Cassette;
-
-pub mod usb;
-use usb::UsbHandler;
+pub mod custom_panic;
+pub mod floppy_control;
+pub mod flux_reader;
+pub mod flux_writer;
 pub mod interrupts;
 pub mod track_raw;
+pub mod usb;
 
 extern crate alloc;
 
-pub mod flux_reader;
-pub mod flux_writer;
-
-pub mod floppy_control;
-
+use alloc::boxed::Box;
+use alloc::format;
+use cassette::Cassette;
+use core::cell::RefCell;
+use cortex_m::interrupt::Mutex;
+use cortex_m::iprintln;
+use cortex_m_rt::entry;
 use floppy_control::FloppyControl;
-
-pub mod sector_iso;
-
-pub mod custom_panic;
+use flux_reader::FluxReader;
+use flux_writer::FluxWriter;
+use heapless::spsc::Queue;
+use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PushPull};
+use stm32f4xx_hal::otg_fs::USB;
+use stm32f4xx_hal::pac::Interrupt;
+use stm32f4xx_hal::{pac, prelude::*};
+use usb::UsbHandler;
+use usb_device::class_prelude::UsbBusAllocator;
+use usb_device::prelude::*;
+use usbd_serial::SerialPort;
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -54,7 +40,6 @@ static ITM: Mutex<RefCell<Option<cortex_m::peripheral::ITM>>> = Mutex::new(RefCe
 use alloc::sync::Arc;
 use alloc_cortex_m::CortexMHeap;
 
-use crate::sector_iso::Order;
 use crate::usb::CURRENT_COMMAND;
 
 #[global_allocator]
@@ -70,56 +55,13 @@ macro_rules! safeiprintln {
     ( $fmt:expr) => {
         cortex_m::interrupt::free(|cs| {
             cortex_m::itm::write_str(&mut crate::ITM.borrow(cs).borrow_mut().as_mut().unwrap().stim[0], concat!($fmt, "\n"));
-        });
+        })
     };
     ( $fmt:expr, $($arg:tt)*) => {
         cortex_m::interrupt::free(|cs| {
             cortex_m::itm::write_fmt(&mut crate::ITM.borrow(cs).borrow_mut().as_mut().unwrap().stim[0], format_args!(concat!($fmt, "\n"), $($arg)*));
         });
     };
-}
-
-#[inline(always)]
-fn orange(s: bool) {
-    if s {
-        unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << 13)) };
-    } else {
-        unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << (13 + 16))) };
-    }
-}
-
-fn green(s: bool) {
-    cortex_m::interrupt::free(|cs| {
-        DEBUG_LED_GREEN
-            .borrow(cs)
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .set_state(if s { PinState::High } else { PinState::Low });
-    });
-}
-
-fn create_example_data() -> Vec<u8> {
-    // prepare some test data to write
-    let mut track_data_to_write: Vec<u8> = Vec::with_capacity(13509);
-
-    // pretty ugly example of a very late sync word
-    track_data_to_write.push(0x2a);
-    for _ in 0..100 {
-        track_data_to_write.push(0xaa);
-    }
-    track_data_to_write.push(0x44);
-    track_data_to_write.push(0x89);
-    track_data_to_write.push(0x2a);
-
-    for _ in 0..24800 / 4 {
-        track_data_to_write.push(0xaa);
-        track_data_to_write.push(0x92);
-        track_data_to_write.push(0xA4);
-        track_data_to_write.push(0xaa);
-    }
-
-    track_data_to_write
 }
 
 #[entry]
@@ -145,7 +87,6 @@ fn main() -> ! {
     let rcc = dp.RCC.constrain();
 
     let clocks = rcc.cfgr.sysclk((168).MHz()).freeze();
-    // let clocks = rcc.cfgr.sysclk((168).MHz()).pclk1((8).MHz()).freeze(); // slower peripherals
 
     let gpioa = dp.GPIOA.split();
     let gpiob = dp.GPIOB.split();
@@ -289,6 +230,7 @@ fn main() -> ! {
         read_cons,
         write_prod_cell: RefCell::new(write_prod),
         track_data_to_write: None,
+        timeout_cnt: 0,
     };
 
     loop {

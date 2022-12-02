@@ -1,7 +1,7 @@
 use core::panic;
 
 use util::{
-    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator2, Bit, DensityMapEntry, PulseDuration,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, DensityMapEntry, PulseDuration,
     RawCellData,
 };
 
@@ -138,7 +138,7 @@ impl RawTrack {
 
         // TODO avoid clone
         let cell_data = RawCellData::construct(self.densitymap.clone(), self.raw_data.clone());
-        let mut write_prod_fpg = FluxPulseGenerator2::new(|f| result.push(f), 0);
+        let mut write_prod_fpg = FluxPulseGenerator::new(|f| result.push(f), 0);
 
         // start with a flux transition. avoids long sequences of zero
         for part in cell_data.borrow_parts() {

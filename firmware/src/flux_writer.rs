@@ -33,8 +33,7 @@ impl FluxWriter {
             self.tim4_pulse_complete_callback(cs);
             self.tim4.sr.write(|w| w.uif().clear()); // Clear interrupt
         } else {
-            // TODO Why is this path in the software even possible?
-            //safeiprintln!("W?");
+            panic!("Unexpected interrupt!");
         }
     }
 
@@ -84,22 +83,18 @@ impl FluxWriter {
         self.current_buffer.clear();
 
         while self.cons.ready() && !self.current_buffer.is_full() {
-            let x = self.cons.dequeue().unwrap();
+            let pulse = self.cons.dequeue().unwrap();
+            self.current_buffer.push(pulse as u16).unwrap();
+        }
+    }
 
-            self.current_buffer.push(x as u16).unwrap();
+    pub fn clear_buffers(&mut self) {
+        while self.cons.ready() {
+            self.cons.dequeue().unwrap();
         }
     }
 
     fn dma_swapped_buffer_callback(&mut self) {
-        /*
-        safeiprintln!(
-            "A {} {}",
-            self.current_buffer.len(),
-            self.current_buffer.capacity()
-        );
-         */
-        //self.back_buffer.clear();
-
         // The current buffer with new data will now be moved to the back for the DMA unit
         mem::swap(&mut self.current_buffer, &mut self.back_buffer);
 
@@ -107,7 +102,6 @@ impl FluxWriter {
             // We got less data than needed for a full transfer?
             self.last_dma_frame_active = true;
             self.number_of_last_pulses = self.back_buffer.len() as i32 + 1;
-            //safeiprintln!("L {}", self.number_of_last_pulses);
             self.tim4.dier.modify(|_, w| {
                 w.uie().enabled() // enable update interrupt
             });
@@ -115,8 +109,6 @@ impl FluxWriter {
 
         // load the current buffer with the next data to be ready for the next DMA request
         self.fill_buffer();
-
-        //safeiprintln!("C {} {}",self.current_buffer.len(),self.current_buffer.capacity());
     }
 
     pub fn transmission_active(&self) -> bool {

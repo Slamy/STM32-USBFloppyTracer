@@ -91,6 +91,10 @@ impl FloppyControl {
         self.motor_state = MotorState::On(800);
     }
 
+    pub fn is_spinning(&self) -> bool {
+        matches!(self.motor_state, MotorState::On(_))
+    }
+
     pub fn stop_motor(&mut self) {
         match self.drive_select {
             DriveSelectState::None => {}
@@ -228,14 +232,6 @@ impl FloppyControl {
         }
     }
     pub fn run(&mut self) {
-        /*
-        safeiprintln!(
-            "{:?} {} {:?}",
-            self.step_state,
-            self.wanted_cylinder,
-            self.current_cylinder
-        );
-        */
         if let MotorState::On(count) = self.motor_state {
             if count > 0 {
                 self.motor_state = MotorState::On(count - 1);

@@ -1,7 +1,6 @@
 use core::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     future::Future,
-    sync::atomic::{AtomicBool, Ordering},
     task::Poll,
 };
 use cortex_m::interrupt::Mutex;
@@ -16,9 +15,8 @@ use crate::{
     usb::UsbHandler,
 };
 
-//static SYSTICK_CNT: AtomicU32 = AtomicU32::new(0);
-static INDEX_OCCURED: AtomicBool = AtomicBool::new(false);
-static START_TRANSMIT_ON_INDEX: AtomicBool = AtomicBool::new(false);
+pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+pub static START_TRANSMIT_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 pub static USB_HANDLER: Mutex<RefCell<Option<UsbHandler>>> = Mutex::new(RefCell::new(None));
 pub static FLUX_WRITER: Mutex<RefCell<Option<FluxWriter>>> = Mutex::new(RefCell::new(None));
@@ -54,12 +52,57 @@ pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()>
     })
 }
 
-pub fn async_wait_for_index() -> impl Future<Output = ()> {
-    INDEX_OCCURED.store(false, Ordering::Relaxed);
+pub fn async_wait_for_index() -> impl Future<Output = Result<(), ()>> {
+    cortex_m::interrupt::free(|cs| {
+        INDEX_OCCURED.borrow(cs).set(false);
+    });
 
     poll_fn(|_| {
-        if INDEX_OCCURED.swap(false, Ordering::Relaxed) {
-            Poll::Ready(())
+        let (index_occured, motor_spinning) = cortex_m::interrupt::free(|cs| {
+            (
+                INDEX_OCCURED.borrow(cs).get(),
+                FLOPPY_CONTROL
+                    .borrow(cs)
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .is_spinning(),
+            )
+        });
+
+        if index_occured {
+            Poll::Ready(Ok(()))
+        } else if motor_spinning == false {
+            Poll::Ready(Err(()))
+        } else {
+            Poll::Pending
+        }
+    })
+}
+
+pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
+    poll_fn(|_| {
+        let (transmission_active, motor_spinning) = cortex_m::interrupt::free(|cs| {
+            (
+                FLUX_WRITER
+                    .borrow(cs)
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .transmission_active(),
+                FLOPPY_CONTROL
+                    .borrow(cs)
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .is_spinning(),
+            )
+        });
+
+        if transmission_active {
+            Poll::Ready(Ok(()))
+        } else if motor_spinning == false {
+            Poll::Ready(Err(()))
         } else {
             Poll::Pending
         }
@@ -107,8 +150,7 @@ fn SysTick() {
 #[interrupt]
 fn EXTI3() {
     cortex_m::interrupt::free(|cs| {
-        //safeiprintln!( "SysTick",);
-        INDEX_OCCURED.store(true, Ordering::Relaxed);
+        INDEX_OCCURED.borrow(cs).set(true);
 
         if FLUX_WRITER
             .borrow(cs)
@@ -120,7 +162,9 @@ fn EXTI3() {
             safeiprintln!("Warning! Overwriting my own track!");
         }
 
-        if START_TRANSMIT_ON_INDEX.swap(false, Ordering::Relaxed) {
+        if START_TRANSMIT_ON_INDEX.borrow(cs).get() == true {
+            START_TRANSMIT_ON_INDEX.borrow(cs).set(false);
+
             FLUX_WRITER
                 .borrow(cs)
                 .borrow_mut()

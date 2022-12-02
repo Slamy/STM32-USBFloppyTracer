@@ -9,7 +9,7 @@ use util::{
     Cylinder, Density, DensityMapEntry, DriveSelectState, Head, PulseDuration, RawCellData, Track,
 };
 
-use crate::{interrupts, orange, safeiprintln};
+use crate::{interrupts, safeiprintln};
 
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
@@ -22,7 +22,6 @@ pub struct UsbHandler<'a> {
     usb_dev: UsbDevice<'a, UsbBus<USB>>,
     receive_buffer: Vec<u8>,
     speeds: Vec<DensityMapEntry>,
-    offset: usize,
     remaining_blocks: u32,
     expected_size: usize,
     cylinder: u32,
@@ -40,7 +39,6 @@ impl UsbHandler<'_> {
             usb_dev,
             receive_buffer: Vec::with_capacity(64),
             speeds: Vec::with_capacity(16),
-            offset: 0,
             remaining_blocks: 0,
             expected_size: 0,
             cylinder: 0,
@@ -64,16 +62,12 @@ impl UsbHandler<'_> {
     pub fn handle_interrupt(&mut self, cs: &CriticalSection) {
         let serial: &mut SerialPort<UsbBus<USB>> = &mut self.usb_serial;
 
-        orange(true);
         if self.usb_dev.poll(&mut [serial]) {
             let mut buf = [0u8; 64];
 
-            //let buf = &mut self.receive_buffer[self.offset..self.offset + 64];
             if let Ok(count) = serial.read(&mut buf) {
                 if self.remaining_blocks == 0 {
                     let mut header = buf.chunks(4);
-
-                    //safeiprintln!("{:?}", buf);
 
                     let command = u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                     match command {
@@ -135,31 +129,13 @@ impl UsbHandler<'_> {
                             panic!("Unknown command");
                         }
                     }
-
-                    /*
-                    safeiprintln!(
-                        "Got command {} {} {} {}",
-                        self.expected_size,
-                        self.remaining_blocks,
-                        cylinder,
-                        head
-                    );
-                    */
                 } else {
                     self.receive_buffer.extend(buf[0..count].iter());
 
                     self.remaining_blocks -= 1;
 
                     if self.remaining_blocks == 0 {
-                        // We have receiving everything we need.
-                        /*
-                        safeiprintln!(
-                            "Got command {} {}",
-                            self.expected_size,
-                            self.receive_buffer.len()
-                        );
-                        */
-
+                        // We have received everything we need.
                         assert!(self.expected_size == self.receive_buffer.len());
 
                         // Create the next receive buffer and take the current one
@@ -169,7 +145,7 @@ impl UsbHandler<'_> {
                         core::mem::swap(&mut recv_buffer, &mut self.receive_buffer);
                         core::mem::swap(&mut speeds, &mut self.speeds);
 
-                        let x = CURRENT_COMMAND.borrow(cs).borrow_mut().replace(
+                        let old_command = CURRENT_COMMAND.borrow(cs).borrow_mut().replace(
                             Command::WriteVerifyRawTrack(
                                 Track {
                                     cylinder: Cylinder(self.cylinder as u8),
@@ -180,14 +156,12 @@ impl UsbHandler<'_> {
                             ),
                         );
 
-                        assert!(x.is_none());
-
-                        //safeiprintln!("Cool");
+                        // Last command shall be not existing.
+                        // If it exists, it was dropped now, which is not good
+                        assert!(old_command.is_none());
                     }
                 }
             }
         }
-
-        orange(false);
     }
 }

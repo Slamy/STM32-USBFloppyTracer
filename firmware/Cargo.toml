@@ -8,9 +8,7 @@ name = "stmtest"
 version = "0.1.0"
 
 [dependencies]
-#cortex-m = "0.7.6"
 cortex-m-rt = "0.7.1"
-# panic-halt = "0.2"
 usb-device = "0.2.9"
 usbd-serial = "0.1"
 heapless = "0.7.16"
@@ -29,6 +27,7 @@ nb = "1.0"
 
 [dependencies.cortex-m]
 features = ["inline-asm"]
+version = "0.7.6"
 
 [dependencies.stm32f4xx-hal]
 default-features = true
