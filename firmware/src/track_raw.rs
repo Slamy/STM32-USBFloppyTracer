@@ -1,4 +1,4 @@
-use core::{cell::RefCell, future::Future, task::Poll};
+use core::{cell::RefCell, cmp::max, future::Future, task::Poll};
 
 use alloc::collections::VecDeque;
 use cassette::futures::poll_fn;
@@ -11,7 +11,7 @@ use util::{
 use crate::{
     interrupts::{
         self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_transmit,
-        FLUX_READER, START_TRANSMIT_ON_INDEX,
+        FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
     safeiprintln,
 };
@@ -30,8 +30,8 @@ impl RawTrackWriter {
         poll_fn(move |_| {
             self.timeout_cnt -= 1;
 
-            if let Some(x) = self.read_cons.dequeue() {
-                Poll::Ready(x as i32)
+            if let Some(pulse_duration) = self.read_cons.dequeue() {
+                Poll::Ready(pulse_duration as i32)
             } else if self.timeout_cnt == 0 {
                 Poll::Ready(-1)
             } else {
@@ -217,16 +217,14 @@ impl RawTrackWriter {
         let mut read_mfm_flux_data_queue: VecDeque<PulseDuration> = VecDeque::with_capacity(1000);
 
         // start reception of track on next index pulse
+        cortex_m::interrupt::free(|cs| {
+            START_RECEIVE_ON_INDEX.borrow(cs).set(true);
+        });
+
         if let Err(_) = async_wait_for_index().await {
             self.track_data_to_write = Some(track_data_to_write);
             return false;
         };
-
-        cortex_m::interrupt::free(|cs| {
-            let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-            let y2 = fr1.as_mut().unwrap();
-            y2.start_reception(cs);
-        });
 
         // throw away first pulses before the point of significance
         // as we can't verify those pulses.
@@ -272,7 +270,7 @@ impl RawTrackWriter {
         // there should be one position where it matches!
         for _ in 0..READ_DATA_WINDOW_SIZE {
             if read_mfm_flux_data_queue.len() < COMPARE_WINDOW_SIZE {
-                safeiprintln!("No data sync!");
+                safeiprintln!("Unable to verify!");
 
                 cortex_m::interrupt::free(|cs| {
                     let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
@@ -299,7 +297,7 @@ impl RawTrackWriter {
         }
 
         // We are now synchronized and shall compare upcoming data
-
+        let mut maximum_diff = 0;
         let mut successful_compares = 0;
         loop {
             // read more data from the incoming flux stream and
@@ -335,6 +333,11 @@ impl RawTrackWriter {
                 let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
                 let readback = read_mfm_flux_data_queue.pop_front().unwrap();
 
+                maximum_diff = max(
+                    maximum_diff,
+                    (reference.0 as i32).abs_diff(readback.0 as i32),
+                );
+
                 if !reference.similar(&readback, similarity_treshold) {
                     safeiprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
@@ -363,7 +366,12 @@ impl RawTrackWriter {
             y2.stop_reception(cs);
         });
 
-        safeiprintln!("Verified {} pulses!", successful_compares);
+        safeiprintln!(
+            "Verified {} pulses, Max duration error {} / {}",
+            successful_compares,
+            maximum_diff,
+            similarity_treshold
+        );
         true
     }
 }

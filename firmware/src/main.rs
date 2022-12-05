@@ -96,7 +96,7 @@ fn main() -> ! {
     let debug_led_green = gpiod.pd12.into_push_pull_output();
     let _debug_led_orange = gpiod.pd13.into_push_pull_output();
 
-    // now for the floppy bus pins
+    // now for the floppy bus pins in the order of the connector
     let out_density_select = gpiob
         .pb13
         .into_push_pull_output_in_state(stm32f4xx_hal::gpio::PinState::High);
@@ -124,6 +124,7 @@ fn main() -> ! {
         .pb5
         .into_push_pull_output_in_state(stm32f4xx_hal::gpio::PinState::High);
     let in_track_00 = gpiob.pb7.into_pull_up_input();
+    let in_write_protect = gpiob.pb14.into_pull_up_input();
     let _in_read_data: Pin<'A', 2, Alternate<1>> = gpioa.pa2.into_alternate(); // TIM2_CH3, AF1
     let out_head_select = gpiob
         .pb11
@@ -244,48 +245,62 @@ fn main() -> ! {
                 raw_cell_data,
                 first_significance_offset,
             )) => {
-                cortex_m::interrupt::free(|cs| {
-                    interrupts::USB_HANDLER
-                        .borrow(cs)
-                        .borrow_mut()
-                        .as_mut()
-                        .unwrap()
-                        .response("GotCmd");
+                if in_write_protect.is_low() {
+                    safeiprintln!("Write Protection is active!");
 
-                    interrupts::FLOPPY_CONTROL
-                        .borrow(cs)
-                        .borrow_mut()
-                        .as_mut()
-                        .unwrap()
-                        .spin_motor();
-                });
-
-                raw_track_writer.track_data_to_write = Some(raw_cell_data);
-                let write_verify_fut =
-                    Box::pin(raw_track_writer.write_and_verify(track, first_significance_offset));
-                let cm = Cassette::new(write_verify_fut);
-                let result = cm.block_on();
-
-                let str_response = if result.2 {
-                    format!(
-                        "WrittenAndVerified {} {} {} {}",
-                        track.cylinder.0, track.head.0, result.0, result.1
-                    )
+                    cortex_m::interrupt::free(|cs| {
+                        interrupts::USB_HANDLER
+                            .borrow(cs)
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .response("WriteProtected");
+                    });
                 } else {
-                    format!(
-                        "Fail {} {} {} {}",
-                        track.cylinder.0, track.head.0, result.0, result.1
-                    )
-                };
+                    cortex_m::interrupt::free(|cs| {
+                        interrupts::USB_HANDLER
+                            .borrow(cs)
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .response("GotCmd");
 
-                cortex_m::interrupt::free(|cs| {
-                    interrupts::USB_HANDLER
-                        .borrow(cs)
-                        .borrow_mut()
-                        .as_mut()
-                        .unwrap()
-                        .response(&str_response);
-                });
+                        interrupts::FLOPPY_CONTROL
+                            .borrow(cs)
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .spin_motor();
+                    });
+
+                    raw_track_writer.track_data_to_write = Some(raw_cell_data);
+                    let write_verify_fut = Box::pin(
+                        raw_track_writer.write_and_verify(track, first_significance_offset),
+                    );
+                    let cm = Cassette::new(write_verify_fut);
+                    let result = cm.block_on();
+
+                    let str_response = if result.2 {
+                        format!(
+                            "WrittenAndVerified {} {} {} {}",
+                            track.cylinder.0, track.head.0, result.0, result.1
+                        )
+                    } else {
+                        format!(
+                            "Fail {} {} {} {}",
+                            track.cylinder.0, track.head.0, result.0, result.1
+                        )
+                    };
+
+                    cortex_m::interrupt::free(|cs| {
+                        interrupts::USB_HANDLER
+                            .borrow(cs)
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .response(&str_response);
+                    });
+                }
             }
             _ => {}
         }

@@ -39,24 +39,18 @@ impl FluxWriter {
 
     pub fn dma1_stream6_irq(&mut self, cs: &CriticalSection) {
         if self.dma1.borrow(cs).hisr.read().tcif6().is_complete() {
-            //orange(true);
             self.dma_swapped_buffer_callback();
-            //orange(false);
-
             self.dma1.borrow(cs).hifcr.write(|w| w.ctcif6().clear()); // Clear interrupt
         }
 
         if self.dma1.borrow(cs).hisr.read().teif6().is_error() {
             panic!("DMA Error");
-            // self.dma1.borrow(cs).hifcr.write(|w| w.cteif6().clear());
         }
     }
 
     fn tim4_pulse_complete_callback(&mut self, cs: &CriticalSection) {
-        //assert!(self.last_dma_frame_active == true);
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
-        //orange(true);
         if self.last_dma_frame_active {
             self.number_of_last_pulses -= 1;
 
@@ -75,7 +69,6 @@ impl FluxWriter {
         } else {
             panic!("Wasted TIM4 IRQ !");
         }
-        //orange(false);
     }
 
     fn fill_buffer(&mut self) {
@@ -136,7 +129,6 @@ impl FluxWriter {
         self.number_of_last_pulses = 0;
 
         assert!(self.back_buffer.is_full() == true);
-        //assert!(self.current_buffer.is_full() == true);
 
         #[rustfmt::skip] // keep the config readable!
             dma_stream.cr.write(|w| {
@@ -170,11 +162,9 @@ impl FluxWriter {
                 .write(|w| w.pa().bits(self.tim4.arr.as_ptr() as u32));
         }
 
-        //self.activate_output_on_tim4_irq=true;
         #[rustfmt::skip] // keep the config readable!
             self.tim4.dier.write(|w| {w
                 .ude().enabled() // enable update DMA request
-                //.uie().enabled() // enable update interrupt
             });
         self.tim4.ccmr2_output().modify(|_, w| w.oc3m().pwm_mode1()); //select pwm mode
 
@@ -194,12 +184,10 @@ impl FluxWriter {
     ) -> FluxWriter {
         const ACTIVE_PULSE_LEN: u16 = 40;
 
-        //tim4.cr1.modify(|_, w| w.ckd().div4().dir().down());
         tim4.cr1.modify(|_, w| w.dir().down());
 
         tim4.ccr3.write(|w| w.ccr().bits(ACTIVE_PULSE_LEN)); // output compare value
         tim4.ccmr2_output().modify(|_, w| w.oc3m().force_inactive());
-        //tim4.ccmr2_output().modify(|_, w| w.oc3m().pwm_mode1()); //select pwm mode
 
         tim4.ccer.write(|w| w.cc3e().set_bit().cc3p().set_bit()); //activate channel 3 output with inverse polarity
         tim4.cr2.write(|w| w.ccds().on_update()); // DMA request on update

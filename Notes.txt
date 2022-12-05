@@ -7,6 +7,26 @@ https://en.wikipedia.org/wiki/Write_precompensation
 http://info-coach.fr/atari/hardware/FD-Hard.php#WD1772
 https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
 
+Interesting for floppy signals:
+https://retrocmp.de/fdd/general/floppy-bus.htm
+
+Notes about the disk change signal:
+
+Checked with 3.5" drive:
+Stays high if no disk is changed while the drive is selected.
+Transitions to low if disk is ejected while the drive is selected.
+Doesn't transition to high if disk is inserted while the drive is selected.
+Transitions to high if head is stepped while disk is inserted.
+Also Transitions to high if head is stepped out when on track 0 and nothing happens. This useful as it doesn't makes a sound!
+
+Checked with 5.25" drive:
+Stays high if no disk is ejected while the drive is selected.
+Stays high if the knob is turned while the drive is selected.
+Transitions to low if disk is pulled out while the drive is selected.
+Doesn't transition to high if disk is inserted while the drive is selected.
+Doesn't transition to high if the knob is turned while the drive is selected and a disk is inside.
+Transitions to high if head is stepped while disk is inserted.
+Also Transitions to high if head is stepped out when on track 0 and nothing happens. This useful as it doesn't makes a sound!
 
 Timers are counting with 84 MHz / 11.9 ns period
 

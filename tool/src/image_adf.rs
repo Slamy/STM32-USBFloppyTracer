@@ -146,7 +146,13 @@ pub fn parse_adf_image(path: &str) -> Vec<RawTrack> {
                 cell_size: PulseDuration(168),
             }];
 
-            tracks.push(RawTrack::new(cylinder, head, trackbuf, densitymap));
+            tracks.push(RawTrack::new(
+                cylinder,
+                head,
+                trackbuf,
+                densitymap,
+                util::Encoding::MFM,
+            ));
         }
     }
 

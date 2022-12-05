@@ -135,6 +135,7 @@ pub fn parse_d64_image(path: &str) -> Vec<RawTrack> {
             0,
             trackbuf,
             densitymap,
+            util::Encoding::GCR,
         ));
     }
     tracks

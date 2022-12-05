@@ -18,6 +18,12 @@ pub struct Head(pub u8);
 #[derive(Clone, Copy, Debug)]
 pub struct Cylinder(pub u8);
 
+#[derive(Clone, Copy, Debug)]
+pub enum Encoding {
+    GCR,
+    MFM,
+}
+
 pub enum DriveSelectState {
     None,
     A,
@@ -53,7 +59,6 @@ pub struct RawCellData {
 
     #[borrows(cells)]
     #[covariant]
-    //pub cell_sizes: Vec<(u32, PulseDuration)>,
     pub parts: Vec<RawCellPart<'this>>,
 }
 
@@ -84,7 +89,6 @@ impl RawCellData {
                     offset += speed.number_of_cells;
                 }
 
-                //x.push(speeds.)
                 parts
             },
         }

@@ -1,4 +1,6 @@
 use std::ffi::{c_void, CString};
+use std::fs::{self, File};
+use std::io::Read;
 use std::mem::MaybeUninit;
 
 use std::slice;
@@ -46,7 +48,7 @@ fn sparse_timebuf(timebuf: &Vec<u32>) -> Vec<DensityMapEntry> {
 
 fn auto_cell_size(tracklen: u32) -> f64 {
     let number_cells = tracklen * 8;
-    let rpm = 301.0; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
+    let rpm = 300.2; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
     let seconds_per_revolution = 60.0 / rpm;
     let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / number_cells as f64;
     let stm_timer_mhz = 84.0;
@@ -54,9 +56,42 @@ fn auto_cell_size(tracklen: u32) -> f64 {
     raw_timer_val
 }
 
+fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u32, head: u32) -> Vec<u8> {
+    match (file_hash_str, cyl, head) {
+        // Enchanted land has a broken cell at the end of the last track
+        ("d907e262b6a3a72e0c690216bb9d0290", 79, 0) => {
+            let mut edit: Vec<u8> = source.into();
+            edit[12606] = 0x55;
+            edit
+        }
+
+        // Gods Disk 1 has invalid Mfm Encoding on variable densitiy track
+        ("7b2a11eda49fc6841834e792dab53997", 0, 1) => {
+            let mut edit: Vec<u8> = source.into();
+            edit[0] = 0x55;
+            edit
+        }
+
+        _ => source.into(),
+    }
+}
+
+fn md5_sum_of_file(path: &str) -> String {
+    let mut f = File::open(&path).expect("no file found");
+    let metadata = fs::metadata(&path).expect("unable to read metadata");
+
+    let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
+    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
+    assert_eq!(bytes_read, metadata.len() as usize);
+    let file_hash = md5::compute(&whole_file_buffer);
+    let file_hashstr = format!("{:x}", file_hash);
+    file_hashstr
+}
+
 pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
     println!("Reading IPF from {} ...", path);
 
+    let file_hashstr = md5_sum_of_file(path);
     let mut tracks: Vec<RawTrack> = Vec::new();
 
     assert!(unsafe { CAPSInit() == 0 });
@@ -91,12 +126,17 @@ pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
             if trackInf.tracklen > 0 {
                 let auto_cell_size = auto_cell_size(trackInf.tracklen);
 
-                let trackbuf = unsafe {
-                    slice::from_raw_parts(trackInf.trackbuf, trackInf.tracklen as usize).to_vec()
-                };
+                let trackbuf_orig =
+                    unsafe { slice::from_raw_parts(trackInf.trackbuf, trackInf.tracklen as usize) };
+
+                let trackbuf = patch_trackdata(trackbuf_orig, &file_hashstr, cylinder, head);
 
                 let mut densitymap;
                 if trackInf.type_ == ctitVar {
+                    println!(
+                        "Variable Density Track {} {} - Auto cell size {} ",
+                        cylinder, head, auto_cell_size
+                    );
                     let timebuf = unsafe {
                         slice::from_raw_parts(trackInf.timebuf, trackInf.timelen as usize).to_vec()
                     };
@@ -109,13 +149,24 @@ pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
                         );
                     });
                 } else {
+                    println!(
+                        "Auto Density Track {} {} - Auto cell size {} ",
+                        cylinder, head, auto_cell_size
+                    );
+
                     densitymap = vec![DensityMapEntry {
                         number_of_cells: trackbuf.len() as usize,
                         cell_size: PulseDuration(auto_cell_size as u16),
                     }];
                 }
 
-                tracks.push(RawTrack::new(cylinder, head, trackbuf, densitymap));
+                tracks.push(RawTrack::new(
+                    cylinder,
+                    head,
+                    trackbuf,
+                    densitymap,
+                    util::Encoding::MFM,
+                ));
             }
             unsafe {
                 CAPSUnlockTrack(id, cylinder, head);

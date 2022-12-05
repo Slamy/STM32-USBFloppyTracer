@@ -7,16 +7,14 @@ use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
 use rawtrack::RawTrack;
 use rusb::{Context, DeviceHandle};
-use std::cell::RefCell;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::Path;
 use std::process::exit;
 use std::slice::Iter;
 use std::time::Duration;
 use usb::init_usb;
-use util::bitstream::to_bit_stream;
-use util::fluxpulse::FluxPulseGenerator;
-use util::{Bit, Density, DriveSelectState, RawCellData};
+use util::{Density, DriveSelectState, Encoding};
 
 use crate::image_g64::parse_g64_image;
 use crate::image_ipf::parse_ipf_image;
@@ -80,6 +78,29 @@ fn configure_device(
         .next()
         .unwrap()
         .clone_from_slice(&u32::to_le_bytes(settings));
+
+    handle
+        .write_bulk(*endpoint_out, &command_buf, timeout)
+        .unwrap();
+}
+
+fn step_to_track(handles: &(DeviceHandle<Context>, u8, u8), cylinder: u32) {
+    let (handle, _endpoint_in, endpoint_out) = handles;
+    let timeout = Duration::from_secs(10);
+
+    let mut command_buf = [0u8; 8];
+
+    let mut writer = command_buf.chunks_mut(4);
+
+    writer
+        .next()
+        .unwrap()
+        .clone_from_slice(&u32::to_le_bytes(0x12340003));
+
+    writer
+        .next()
+        .unwrap()
+        .clone_from_slice(&u32::to_le_bytes(cylinder));
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
@@ -219,60 +240,10 @@ fn wait_for_answer(
                 "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
                 response_split[1], response_split[2], response_split[3], response_split[4],
             ),
+            "WriteProtected" => panic!("Disk is write protected!"),
             _ => panic!("Unexpected answer from device: {}", response_text),
         }
     }
-}
-
-fn check_writability(track: &RawTrack) {
-    // TODO avoid the clone
-    let cell_data = RawCellData::construct(track.densitymap.clone(), track.raw_data.clone());
-    let maximum_allowed_cell_size = track.densitymap[0].cell_size.0 * 5;
-
-    let track_offset = RefCell::new(0);
-
-    let mut write_prod_fpg = FluxPulseGenerator::new(
-        |f| {
-            if f.0 > maximum_allowed_cell_size {
-                let current_track_offset = *track_offset.borrow();
-
-                println!(
-                    "Track {} {} has physically impossible data. Offset {} of {}. Reduce by {}?",
-                    track.cylinder,
-                    track.head,
-                    current_track_offset,
-                    track.raw_data.len(),
-                    track.raw_data.len() - current_track_offset
-                );
-
-                let impossible_data_position =
-                    &track.raw_data[current_track_offset - 5..current_track_offset + 5];
-                println!("impossible_data_position {:x?}", impossible_data_position);
-
-                let zero_pos = track.raw_data.iter().position(|d| *d == 0);
-                if let Some(zero_found) = zero_pos {
-                    println!("zero_found at {}. This track needs fixing.", zero_found);
-                    println!("zero to end is {}", track.raw_data.len() - zero_found);
-                }
-
-                panic!("Too long pause between flux change: {}", f.0)
-            }
-        },
-        0,
-    );
-
-    // start with a flux transition. avoids long sequences of zero
-    write_prod_fpg.feed(Bit(true));
-    for part in cell_data.borrow_parts() {
-        write_prod_fpg.cell_duration = part.cell_size.0 as u32;
-
-        for cell_byte in part.cells {
-            *track_offset.borrow_mut() += 1;
-            to_bit_stream(*cell_byte, |bit| write_prod_fpg.feed(bit));
-        }
-    }
-    // also end with a flux transition. avoids long sequences of zero
-    write_prod_fpg.feed(Bit(true));
 }
 
 fn parse_image(path: &str) -> Vec<RawTrack> {
@@ -287,13 +258,59 @@ fn parse_image(path: &str) -> Vec<RawTrack> {
     }
 }
 
+fn main2() {
+    let usb_handles = init_usb().unwrap_or_else(|| {
+        println!("Unable to initialize the USB device!");
+        exit(1);
+    });
+
+    clear_buffers(&usb_handles);
+
+    let paths = fs::read_dir("./images").unwrap();
+
+    for path in paths {
+        let p = path.unwrap().path();
+        let mut tracks = parse_image(p.to_str().unwrap());
+
+        for track in tracks.iter() {
+            track.check_writability();
+        }
+
+        for track in tracks.iter_mut() {
+            track.get_significance_offset();
+        }
+
+        if matches!(tracks[0].encoding, Encoding::GCR) {
+            configure_device(&usb_handles, DriveSelectState::B, Density::SingleDouble);
+        } else {
+            configure_device(&usb_handles, DriveSelectState::A, Density::SingleDouble);
+        }
+
+        let mut write_iterator = tracks.iter();
+        let mut verify_iterator = tracks.iter();
+
+        while let Some(write_track) = write_iterator.next() {
+            write_raw_track(&usb_handles, write_track);
+            wait_for_answer(&usb_handles, &mut verify_iterator);
+        }
+
+        println!("All tracks written. Wait for remaining verifications!");
+
+        while let Some(verify_track) = verify_iterator.next() {
+            wait_for_last_answer(&usb_handles, &verify_track);
+        }
+
+        println!("--- Disk Image written and verified! ---")
+    }
+}
+
 fn main() {
     let cli = Args::parse();
 
     let mut tracks = parse_image(&cli.filepath);
 
     for track in tracks.iter() {
-        check_writability(track);
+        track.check_writability();
     }
 
     for track in tracks.iter_mut() {

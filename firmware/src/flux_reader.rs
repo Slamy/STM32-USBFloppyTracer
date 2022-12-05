@@ -25,8 +25,6 @@ pub struct FluxReader {
 
 impl FluxReader {
     fn dma_swapped_buffer_callback(&mut self) {
-        //assert!(self.current_buffer.is_empty());
-
         // The back buffer with new data will now be moved to current
         mem::swap(&mut self.current_buffer, &mut self.back_buffer);
 
@@ -109,12 +107,10 @@ impl FluxReader {
         dma1: Arc<Mutex<DMA1>>,
         prod: Producer<'static, u32, 512>,
     ) -> FluxReader {
-        //tim2.cr1.modify(|_, w| w.ckd().div4().dir().up()); // count up
         tim2.cr1.modify(|_, w| w.dir().up()); // count up
 
         tim2.ccmr2_input().write(|w| w.cc3s().ti3()); // select active input.
         tim2.ccer.write(|w| w.cc3e().set_bit()); // enable capture on channel 3
-                                                 //tim2.dier.write(|w| w.cc3de().enabled().cc3ie().enabled()); // DMA request for channel 3
         tim2.dier.write(|w| w.cc3de().enabled()); // DMA request for channel 3
 
         // allocate static global safe buffers for double buffering DMA

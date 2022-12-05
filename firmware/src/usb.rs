@@ -125,8 +125,23 @@ impl UsbHandler<'_> {
                                 floppy_control.select_density(floppy_density);
                             });
                         }
+                        0x12340003 => {
+                            let cylinder =
+                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
+                            cortex_m::interrupt::free(|cs| {
+                                let mut floppy_control_borrow =
+                                    interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
+                                let floppy_control = floppy_control_borrow.as_mut().unwrap();
+
+                                safeiprintln!("Step to track {}", cylinder);
+                                floppy_control.select_track(Track {
+                                    cylinder: Cylinder(cylinder as u8),
+                                    head: Head(0),
+                                });
+                            });
+                        }
                         _ => {
-                            panic!("Unknown command");
+                            safeiprintln!("Unknown command");
                         }
                     }
                 } else {

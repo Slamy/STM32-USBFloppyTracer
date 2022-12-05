@@ -17,6 +17,7 @@ use crate::{
 
 pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 pub static START_TRANSMIT_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+pub static START_RECEIVE_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 pub static USB_HANDLER: Mutex<RefCell<Option<UsbHandler>>> = Mutex::new(RefCell::new(None));
 pub static FLUX_WRITER: Mutex<RefCell<Option<FluxWriter>>> = Mutex::new(RefCell::new(None));
@@ -135,8 +136,6 @@ fn OTG_FS() {
 
 #[exception]
 fn SysTick() {
-    //SYSTICK_CNT.fetch_add(1, Ordering::Relaxed);
-
     cortex_m::interrupt::free(|cs| {
         FLOPPY_CONTROL
             .borrow(cs)
@@ -171,6 +170,17 @@ fn EXTI3() {
                 .as_mut()
                 .unwrap()
                 .start_transmit(cs);
+        }
+
+        if START_RECEIVE_ON_INDEX.borrow(cs).get() == true {
+            START_RECEIVE_ON_INDEX.borrow(cs).set(false);
+
+            FLUX_READER
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .start_reception(cs);
         }
 
         IN_INDEX

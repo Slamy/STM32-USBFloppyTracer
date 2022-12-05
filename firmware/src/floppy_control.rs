@@ -100,10 +100,8 @@ impl FloppyControl {
             DriveSelectState::None => {}
             DriveSelectState::A => {
                 self.out_motor_enable_a.set_high();
-                self.out_drive_select_a.set_high();
             }
             DriveSelectState::B => {
-                self.out_drive_select_b.set_high();
                 self.out_motor_enable_b.set_high();
             }
         }
@@ -124,12 +122,16 @@ impl FloppyControl {
                 // stop all drive B activities
                 self.out_drive_select_b.set_high();
                 self.out_motor_enable_b.set_high();
+
+                self.out_drive_select_a.set_low();
                 safeiprintln!("Drive A selected!")
             }
             DriveSelectState::B => {
-                //stop all drive A activites
+                // stop all drive A activites
                 self.out_drive_select_a.set_high();
                 self.out_motor_enable_a.set_high();
+
+                self.out_drive_select_b.set_low();
                 safeiprintln!("Drive B selected!")
             }
         }
@@ -201,17 +203,17 @@ impl FloppyControl {
                     StepState::Stepping
                 }
             }
-            StepState::SettingDirection(x) => {
-                if x > 0 {
-                    StepState::SettingDirection(x - 1)
+            StepState::SettingDirection(cnt) => {
+                if cnt > 0 {
+                    StepState::SettingDirection(cnt - 1)
                 } else {
                     StepState::Idle
                 }
             }
 
-            StepState::SettlingHead(x) => {
-                if x > 0 {
-                    StepState::SettlingHead(x - 1)
+            StepState::SettlingHead(cnt) => {
+                if cnt > 0 {
+                    StepState::SettlingHead(cnt - 1)
                 } else {
                     StepState::Idle
                 }
@@ -238,8 +240,8 @@ impl FloppyControl {
             } else {
                 self.stop_motor();
             }
-
-            self.step_machine();
         }
+
+        self.step_machine();
     }
 }

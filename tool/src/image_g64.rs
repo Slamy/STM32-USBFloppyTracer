@@ -163,6 +163,7 @@ pub fn parse_g64_image(path: &str) -> Vec<RawTrack> {
                 0,
                 trackdata_copy,
                 densitymap,
+                util::Encoding::GCR,
             ));
         }
     }
