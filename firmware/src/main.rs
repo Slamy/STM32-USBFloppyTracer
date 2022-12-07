@@ -48,19 +48,19 @@ static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 #[macro_export]
 macro_rules! safeiprintln {
     () => {
-        cortex_m::interrupt::free(|cs| {
-            cortex_m::itm::write_str(&mut crate::ITM.borrow(cs).borrow_mut().as_mut().unwrap().stim[0], "\n");
-        });
+        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
+        cortex_m::itm::write_str(&mut itm.stim[0], "\n");
+        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
     };
-    ( $fmt:expr) => {
-        cortex_m::interrupt::free(|cs| {
-            cortex_m::itm::write_str(&mut crate::ITM.borrow(cs).borrow_mut().as_mut().unwrap().stim[0], concat!($fmt, "\n"));
-        })
+    ( $fmt:expr ) => {
+        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
+        cortex_m::itm::write_str(&mut itm.stim[0], concat!($fmt, "\n"));
+        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
     };
     ( $fmt:expr, $($arg:tt)*) => {
-        cortex_m::interrupt::free(|cs| {
-            cortex_m::itm::write_fmt(&mut crate::ITM.borrow(cs).borrow_mut().as_mut().unwrap().stim[0], format_args!(concat!($fmt, "\n"), $($arg)*));
-        });
+        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
+        cortex_m::itm::write_fmt(&mut itm.stim[0], format_args!(concat!($fmt, "\n"), $($arg)*));
+        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
     };
 }
 

@@ -67,11 +67,11 @@ impl FloppyControl {
         match dens {
             Density::High => {
                 self.out_density_select.set_high();
-                safeiprintln!("High Density selected!")
+                safeiprintln!("High Density selected!");
             }
             Density::SingleDouble => {
                 self.out_density_select.set_low();
-                safeiprintln!("Double Density selected!")
+                safeiprintln!("Double Density selected!");
             }
         }
     }
@@ -124,7 +124,7 @@ impl FloppyControl {
                 self.out_motor_enable_b.set_high();
 
                 self.out_drive_select_a.set_low();
-                safeiprintln!("Drive A selected!")
+                safeiprintln!("Drive A selected!");
             }
             DriveSelectState::B => {
                 // stop all drive A activites
@@ -132,7 +132,7 @@ impl FloppyControl {
                 self.out_motor_enable_a.set_high();
 
                 self.out_drive_select_b.set_low();
-                safeiprintln!("Drive B selected!")
+                safeiprintln!("Drive B selected!");
             }
         }
 
