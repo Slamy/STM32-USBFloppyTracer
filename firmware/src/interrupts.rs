@@ -19,7 +19,6 @@ pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 pub static START_TRANSMIT_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 pub static START_RECEIVE_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
-pub static USB_HANDLER: Mutex<RefCell<Option<UsbHandler>>> = Mutex::new(RefCell::new(None));
 pub static FLUX_WRITER: Mutex<RefCell<Option<FluxWriter>>> = Mutex::new(RefCell::new(None));
 pub static FLUX_READER: Mutex<RefCell<Option<FluxReader>>> = Mutex::new(RefCell::new(None));
 pub static FLOPPY_CONTROL: Mutex<RefCell<Option<FloppyControl>>> = Mutex::new(RefCell::new(None));
@@ -119,18 +118,6 @@ fn DMA1_STREAM1() {
             .as_mut()
             .unwrap()
             .dma1_stream1_irq(cs);
-    });
-}
-
-#[interrupt]
-fn OTG_FS() {
-    cortex_m::interrupt::free(|cs| {
-        USB_HANDLER
-            .borrow(cs)
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .handle_interrupt(cs);
     });
 }
 

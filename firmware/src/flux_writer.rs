@@ -33,7 +33,8 @@ impl FluxWriter {
             self.tim4_pulse_complete_callback(cs);
             self.tim4.sr.write(|w| w.uif().clear()); // Clear interrupt
         } else {
-            panic!("Unexpected interrupt!");
+            // Just ignore this. This can happen with the STM32F407.
+            // The flag is not even set but I still get interrupts...
         }
     }
 

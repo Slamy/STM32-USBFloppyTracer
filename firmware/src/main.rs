@@ -183,23 +183,22 @@ fn main() -> ! {
     let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, out_write_gate);
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
+    let serial = SerialPort::new(usb_bus);
+
+    let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        .manufacturer("Slamy")
+        .product("WuselDerpy")
+        .device_class(0xff)
+        .build();
+
+    let mut usb_handler = UsbHandler::new(serial, usb_device);
+
     cortex_m::interrupt::free(|cs| {
         DEBUG_LED_GREEN
             .borrow(cs)
             .borrow_mut()
             .replace(debug_led_green);
 
-        let serial = SerialPort::new(usb_bus);
-
-        let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Slamy")
-            .product("WuselDerpy")
-            .device_class(0xff)
-            .build();
-
-        let usb_handler = UsbHandler::new(serial, usb_device);
-
-        *interrupts::USB_HANDLER.borrow(cs).borrow_mut() = Some(usb_handler);
         *interrupts::FLUX_WRITER.borrow(cs).borrow_mut() = Some(flux_writer);
         *interrupts::FLUX_READER.borrow(cs).borrow_mut() = Some(flux_reader);
     });
@@ -218,7 +217,6 @@ fn main() -> ! {
     });
 
     unsafe {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::OTG_FS);
         cortex_m::peripheral::NVIC::unmask(Interrupt::TIM4);
         cortex_m::peripheral::NVIC::unmask(Interrupt::DMA1_STREAM6); // flux writing
         cortex_m::peripheral::NVIC::unmask(Interrupt::DMA1_STREAM1); // flux reading
@@ -235,6 +233,8 @@ fn main() -> ! {
     };
 
     loop {
+        usb_handler.handle();
+
         cortex_m::interrupt::free(|cs| {
             next_command = CURRENT_COMMAND.borrow(cs).borrow_mut().take();
         });
@@ -249,23 +249,10 @@ fn main() -> ! {
                 if in_write_protect.is_low() {
                     safeiprintln!("Write Protection is active!");
 
-                    cortex_m::interrupt::free(|cs| {
-                        interrupts::USB_HANDLER
-                            .borrow(cs)
-                            .borrow_mut()
-                            .as_mut()
-                            .unwrap()
-                            .response("WriteProtected");
-                    });
+                    usb_handler.response("WriteProtected");
                 } else {
+                    usb_handler.response("GotCmd");
                     cortex_m::interrupt::free(|cs| {
-                        interrupts::USB_HANDLER
-                            .borrow(cs)
-                            .borrow_mut()
-                            .as_mut()
-                            .unwrap()
-                            .response("GotCmd");
-
                         interrupts::FLOPPY_CONTROL
                             .borrow(cs)
                             .borrow_mut()
@@ -280,8 +267,15 @@ fn main() -> ! {
                         first_significance_offset,
                         write_precompensation,
                     ));
-                    let cm = Cassette::new(write_verify_fut);
-                    let result = cm.block_on();
+                    let mut cm = Cassette::new(write_verify_fut);
+
+                    let result = loop {
+                        usb_handler.handle();
+
+                        if let Some(result) = cm.poll_on() {
+                            break result;
+                        }
+                    };
 
                     let str_response = match result {
                         Ok((writes, verifies, max_err, write_precompensation)) => format!(
@@ -299,14 +293,7 @@ fn main() -> ! {
                         ),
                     };
 
-                    cortex_m::interrupt::free(|cs| {
-                        interrupts::USB_HANDLER
-                            .borrow(cs)
-                            .borrow_mut()
-                            .as_mut()
-                            .unwrap()
-                            .response(&str_response);
-                    });
+                    usb_handler.response(&str_response);
                 }
             }
             _ => {}

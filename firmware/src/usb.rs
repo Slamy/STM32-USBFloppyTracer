@@ -61,7 +61,7 @@ impl UsbHandler<'_> {
         }
     }
 
-    pub fn handle_interrupt(&mut self, cs: &CriticalSection) {
+    pub fn handle(&mut self) {
         let serial: &mut SerialPort<UsbBus<USB>> = &mut self.usb_serial;
 
         if self.usb_dev.poll(&mut [serial]) {
@@ -165,17 +165,19 @@ impl UsbHandler<'_> {
                         core::mem::swap(&mut recv_buffer, &mut self.receive_buffer);
                         core::mem::swap(&mut speeds, &mut self.speeds);
 
-                        let old_command = CURRENT_COMMAND.borrow(cs).borrow_mut().replace(
-                            Command::WriteVerifyRawTrack(
-                                Track {
-                                    cylinder: Cylinder(self.cylinder as u8),
-                                    head: Head(self.head as u8),
-                                },
-                                RawCellData::construct(speeds, recv_buffer),
-                                self.first_significane_offset as usize,
-                                self.write_precompensation,
-                            ),
+                        let new_command = Command::WriteVerifyRawTrack(
+                            Track {
+                                cylinder: Cylinder(self.cylinder as u8),
+                                head: Head(self.head as u8),
+                            },
+                            RawCellData::construct(speeds, recv_buffer),
+                            self.first_significane_offset as usize,
+                            self.write_precompensation,
                         );
+
+                        let old_command = cortex_m::interrupt::free(|cs| {
+                            CURRENT_COMMAND.borrow(cs).borrow_mut().replace(new_command)
+                        });
 
                         // Last command shall be not existing.
                         // If it exists, it was dropped now, which is not good
