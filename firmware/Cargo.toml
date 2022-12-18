@@ -14,7 +14,6 @@ usbd-serial = "0.1"
 heapless = "0.7.16"
 util = { path = "../util" }
 alloc-cortex-m = "0.4.2"
-crc16 = "0.4.0"
 ouroboros = "0.15.5"
 cassette = "0.2.3"
 

@@ -8,6 +8,7 @@ version = "0.1.0"
 [dependencies]
 cassette = "0.2.3"
 clap = { version = "4.0.27", features = ["derive"] }
+crc16 = "0.4.0"
 csv = "1.1.6"
 home = "0.5.4"
 md5 = "0.7.0"

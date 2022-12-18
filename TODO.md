@@ -7,6 +7,4 @@
 * Add Disk Change detection (Forever mode?)
 * Weak Bits?
 * Fix soft lockups
-* Add ISO Format (ST and MSDOS images)
-    * Add sector interleaving
 * Add STX support (copy protected Atari ST images)

@@ -17,6 +17,7 @@ This project is not targeted to encourage software piracy. It should be seen as 
     * .ipf
     * .d64
     * .g64
+    * .st
 
 ## Compatibility and Differences to old project
 
@@ -33,8 +34,6 @@ There is no need to resolder the old setup.
 
 * Reading of disk images
 * Flippy disks
-* Writing of ISO Format / IBM System 34
-    * Required for Atari ST (.st) and Amstrad CPC (.dsk) images
 
 ## How to connect the STM32F4Discovery board to the disk drive
 

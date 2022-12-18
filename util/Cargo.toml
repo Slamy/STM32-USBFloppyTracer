@@ -11,5 +11,4 @@ heapless = "0.7.16"
 ouroboros = "0.15.5"
 
 [dev-dependencies]
-crc16 = "0.4.0"
 csv = "1.1.6"

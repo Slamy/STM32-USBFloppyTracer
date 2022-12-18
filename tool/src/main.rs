@@ -7,6 +7,7 @@ use crate::image_g64::parse_g64_image;
 use crate::image_ipf::parse_ipf_image;
 use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
+use image_iso::parse_iso_image;
 use rawtrack::{RawImage, RawTrack};
 use rusb::{Context, DeviceHandle};
 use std::process::exit;
@@ -21,6 +22,7 @@ pub mod image_adf;
 pub mod image_d64;
 pub mod image_g64;
 pub mod image_ipf;
+pub mod image_iso;
 pub mod rawtrack;
 pub mod usb;
 pub mod write_precompensation;
@@ -245,6 +247,7 @@ fn parse_image(path: &str) -> RawImage {
         "adf" => parse_adf_image(path),
         "d64" => parse_d64_image(path),
         "g64" => parse_g64_image(path),
+        "st" => parse_iso_image(path),
         _ => panic!("{} is an unknown file extension!", extension),
     }
 }

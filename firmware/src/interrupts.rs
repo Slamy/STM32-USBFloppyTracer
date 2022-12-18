@@ -12,7 +12,6 @@ use util::Track;
 
 use crate::{
     floppy_control::FloppyControl, flux_reader::FluxReader, flux_writer::FluxWriter, safeiprintln,
-    usb::UsbHandler,
 };
 
 pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));

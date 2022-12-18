@@ -1,7 +1,7 @@
 use core::{cell::RefCell, convert::TryInto};
 
 use alloc::vec::Vec;
-use cortex_m::interrupt::{CriticalSection, Mutex};
+use cortex_m::interrupt::{Mutex};
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
