@@ -3,21 +3,19 @@
 #![allow(non_snake_case)]
 #![feature(let_else)]
 
+use crate::image_g64::parse_g64_image;
+use crate::image_ipf::parse_ipf_image;
 use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
-use rawtrack::RawTrack;
+use rawtrack::{RawImage, RawTrack};
 use rusb::{Context, DeviceHandle};
-use std::ffi::OsStr;
-use std::fs;
-use std::path::Path;
 use std::process::exit;
 use std::slice::Iter;
 use std::time::Duration;
+use std::{ffi::OsStr, path::Path};
 use usb::init_usb;
-use util::{Density, DriveSelectState, Encoding};
-
-use crate::image_g64::parse_g64_image;
-use crate::image_ipf::parse_ipf_image;
+use util::{Density, DriveSelectState};
+use write_precompensation::{write_precompensation_calibration, WritePrecompDb};
 
 pub mod image_adf;
 pub mod image_d64;
@@ -25,6 +23,7 @@ pub mod image_g64;
 pub mod image_ipf;
 pub mod rawtrack;
 pub mod usb;
+pub mod write_precompensation;
 
 use clap::Parser;
 
@@ -42,7 +41,11 @@ struct Args {
     #[arg(short, default_value_t = false)]
     b_drive: bool,
 
-    /// Simulate index signal for flipped 5 1/4" disks
+    /// Use provided image to test write precompensation values
+    #[arg(short, default_value_t = false)]
+    wprecomp_calib: bool,
+
+    /// Simulate index signal for flipped 5.25" disks
     #[arg(short, long, default_value_t = false)]
     flippy: bool,
 }
@@ -84,29 +87,6 @@ fn configure_device(
         .unwrap();
 }
 
-fn step_to_track(handles: &(DeviceHandle<Context>, u8, u8), cylinder: u32) {
-    let (handle, _endpoint_in, endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    let mut command_buf = [0u8; 8];
-
-    let mut writer = command_buf.chunks_mut(4);
-
-    writer
-        .next()
-        .unwrap()
-        .clone_from_slice(&u32::to_le_bytes(0x12340003));
-
-    writer
-        .next()
-        .unwrap()
-        .clone_from_slice(&u32::to_le_bytes(cylinder));
-
-    handle
-        .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
-}
-
 fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {
     let (handle, _endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
@@ -120,8 +100,8 @@ fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) 
     }
 
     println!(
-        "Request write and verify of Cyl:{} Head:{}",
-        track.cylinder, track.head
+        "Request write and verify of Cyl:{} Head:{} WritePrecomp:{}",
+        track.cylinder, track.head, track.write_precompensation
     );
 
     let mut writer = command_buf.chunks_mut(4);
@@ -130,7 +110,7 @@ fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) 
         0x12340001,
         expected_size as u32,
         remaining_blocks as u32,
-        track.cylinder | track.head << 16,
+        track.cylinder | (track.head << 8) | (track.write_precompensation << 16),
         track.first_significane_offset.unwrap() as u32,
         track.densitymap.len() as u32,
     ];
@@ -176,13 +156,19 @@ fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_track:
         match response_split[0] {
             "WrittenAndVerified" => {
                 println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}",
-                    response_split[1], response_split[2], response_split[3], response_split[4]
+                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
+                    response_split[1],
+                    response_split[2],
+                    response_split[3],
+                    response_split[4],
+                    response_split[5],
+                    response_split[6],
                 );
                 assert_eq!(verify_track.cylinder, response_split[1].parse().unwrap());
                 assert_eq!(verify_track.head, response_split[2].parse().unwrap());
                 break;
             }
+            "GotCmd" => {} // Ignore
             "Fail" => panic!(
                 "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
                 response_split[1], response_split[2], response_split[3], response_split[4],
@@ -225,8 +211,13 @@ fn wait_for_answer(
         match response_split[0] {
             "WrittenAndVerified" => {
                 println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}",
-                    response_split[1], response_split[2], response_split[3], response_split[4]
+                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
+                    response_split[1],
+                    response_split[2],
+                    response_split[3],
+                    response_split[4],
+                    response_split[5],
+                    response_split[6],
                 );
                 let expected_to_verify = verify_iterator.next().unwrap();
                 assert_eq!(
@@ -246,7 +237,7 @@ fn wait_for_answer(
     }
 }
 
-fn parse_image(path: &str) -> Vec<RawTrack> {
+fn parse_image(path: &str) -> RawImage {
     let extension = Path::new(path).extension().and_then(OsStr::to_str).unwrap();
 
     match extension {
@@ -258,70 +249,64 @@ fn parse_image(path: &str) -> Vec<RawTrack> {
     }
 }
 
-fn main2() {
-    let usb_handles = init_usb().unwrap_or_else(|| {
-        println!("Unable to initialize the USB device!");
-        exit(1);
-    });
+fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: RawImage) {
+    let mut write_iterator = image.tracks.iter();
+    let mut verify_iterator = image.tracks.iter();
 
-    clear_buffers(&usb_handles);
-
-    let paths = fs::read_dir("./images").unwrap();
-
-    for path in paths {
-        let p = path.unwrap().path();
-        let mut tracks = parse_image(p.to_str().unwrap());
-
-        for track in tracks.iter() {
-            track.check_writability();
-        }
-
-        for track in tracks.iter_mut() {
-            track.get_significance_offset();
-        }
-
-        if matches!(tracks[0].encoding, Encoding::GCR) {
-            configure_device(&usb_handles, DriveSelectState::B, Density::SingleDouble);
-        } else {
-            configure_device(&usb_handles, DriveSelectState::A, Density::SingleDouble);
-        }
-
-        let mut write_iterator = tracks.iter();
-        let mut verify_iterator = tracks.iter();
-
-        while let Some(write_track) = write_iterator.next() {
-            write_raw_track(&usb_handles, write_track);
-            wait_for_answer(&usb_handles, &mut verify_iterator);
-        }
-
-        println!("All tracks written. Wait for remaining verifications!");
-
-        while let Some(verify_track) = verify_iterator.next() {
-            wait_for_last_answer(&usb_handles, &verify_track);
-        }
-
-        println!("--- Disk Image written and verified! ---")
+    while let Some(write_track) = write_iterator.next() {
+        write_raw_track(&usb_handles, write_track);
+        wait_for_answer(&usb_handles, &mut verify_iterator);
     }
+
+    println!("All tracks written. Wait for remaining verifications!");
+
+    while let Some(verify_track) = verify_iterator.next() {
+        wait_for_last_answer(&usb_handles, &verify_track);
+    }
+
+    println!("--- Disk Image written and verified! ---")
 }
 
 fn main() {
     let cli = Args::parse();
 
-    let mut tracks = parse_image(&cli.filepath);
+    let wprecomp_db = WritePrecompDb::new();
 
-    for track in tracks.iter() {
+    // before the make contact to the USB device, we shall read the image first
+    // to be sure that it is writeable.
+    let mut image = parse_image(&cli.filepath);
+
+    for track in image.tracks.iter() {
         track.check_writability();
     }
 
-    for track in tracks.iter_mut() {
+    let mut already_warned_about_wprecomp_fail = false;
+    for track in image.tracks.iter_mut() {
         track.get_significance_offset();
+
+        // only alter the write precompensation if no calibration is performed!
+        if let Some(wprecomp_db) = &wprecomp_db && !cli.wprecomp_calib {
+            track.write_precompensation = wprecomp_db.calculate_write_precompensation(
+                track.densitymap[0].cell_size.0 as u32,
+                track.cylinder,
+            ).unwrap_or_else(||{
+                if !already_warned_about_wprecomp_fail{
+                    already_warned_about_wprecomp_fail=true;
+                    println!("Unable to calculate write precompensation for cylinder {} and density {}",track.cylinder,track.densitymap[0].cell_size.0 );
+                }
+                0
+            });
+        }
     }
 
+    // connect to USB
     let usb_handles = init_usb().unwrap_or_else(|| {
         println!("Unable to initialize the USB device!");
         exit(1);
     });
 
+    // it might be sometimes possible during an abort, that the endpoint
+    // still contains data. Must be removed before proceeding
     clear_buffers(&usb_handles);
 
     if cli.a_drive && cli.b_drive {
@@ -336,23 +321,11 @@ fn main() {
         panic!("No drive selected! Please specifiy with -a or -b");
     };
 
-    let density = Density::SingleDouble; // TODO must be changeable!
+    configure_device(&usb_handles, select_drive, image.density);
 
-    configure_device(&usb_handles, select_drive, density);
-
-    let mut write_iterator = tracks.iter();
-    let mut verify_iterator = tracks.iter();
-
-    while let Some(write_track) = write_iterator.next() {
-        write_raw_track(&usb_handles, write_track);
-        wait_for_answer(&usb_handles, &mut verify_iterator);
+    if cli.wprecomp_calib {
+        write_precompensation_calibration(&usb_handles, image);
+    } else {
+        write_and_verify_image(&usb_handles, image);
     }
-
-    println!("All tracks written. Wait for remaining verifications!");
-
-    while let Some(verify_track) = verify_iterator.next() {
-        wait_for_last_answer(&usb_handles, &verify_track);
-    }
-
-    println!("--- Disk Image written and verified! ---")
 }

@@ -92,6 +92,67 @@ where
     }
 }
 
+pub struct MfmDecoder<T>
+where
+    T: FnMut(MfmWord),
+{
+    sink: T,
+    sync_buffer: u64,
+    byte_buffer: u8,
+    shift_count: u8,
+    in_sync: bool,
+    zero_count: i32,
+}
+
+impl<T> MfmDecoder<T>
+where
+    T: FnMut(MfmWord),
+{
+    pub fn new(sink: T) -> MfmDecoder<T> {
+        MfmDecoder {
+            sink,
+            sync_buffer: 0,
+            byte_buffer: 0,
+            shift_count: 0,
+            in_sync: false,
+            zero_count: 0,
+        }
+    }
+
+    pub fn feed(&mut self, cell: Bit) {
+        if cell.0 {
+            self.zero_count = 0;
+        } else {
+            self.zero_count += 1;
+
+            if self.zero_count >= 4 {
+                self.in_sync = false;
+            }
+        }
+
+        self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
+        if (self.sync_buffer & 0xffffffffffff) == 0x448944894489 {
+            self.in_sync = true;
+            self.shift_count = 0;
+            self.byte_buffer = 0;
+            (self.sink)(MfmWord::SyncWord);
+            return;
+        }
+
+        if self.in_sync {
+            if (self.shift_count & 1) == 1 {
+                self.byte_buffer <<= 1;
+                self.byte_buffer |= if cell.0 { 1 } else { 0 };
+            }
+            self.shift_count += 1;
+            if self.shift_count == 16 {
+                self.shift_count = 0;
+                (self.sink)(MfmWord::Enc(self.byte_buffer));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

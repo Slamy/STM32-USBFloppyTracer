@@ -1,13 +1,10 @@
+use crate::rawtrack::{RawImage, RawTrack};
 use std::ffi::{c_void, CString};
 use std::fs::{self, File};
 use std::io::Read;
 use std::mem::MaybeUninit;
-
 use std::slice;
-
 use util::{DensityMapEntry, PulseDuration};
-
-use crate::rawtrack::RawTrack;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -88,7 +85,7 @@ fn md5_sum_of_file(path: &str) -> String {
     file_hashstr
 }
 
-pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
+pub fn parse_ipf_image(path: &str) -> RawImage {
     println!("Reading IPF from {} ...", path);
 
     let file_hashstr = md5_sum_of_file(path);
@@ -179,5 +176,9 @@ pub fn parse_ipf_image(path: &str) -> Vec<RawTrack> {
         CAPSExit();
     }
 
-    tracks
+    RawImage {
+        tracks,
+        disk_type: util::DiskType::Inch3_5,
+        density: util::Density::SingleDouble,
+    }
 }

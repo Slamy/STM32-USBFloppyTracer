@@ -1,14 +1,13 @@
-use util::bitstream::BitStreamCollector;
-use util::mfm::MfmEncoder;
-use util::mfm::MfmWord;
-use util::{Bit, DensityMapEntry, PulseDuration};
-
+use crate::rawtrack::RawImage;
+use crate::rawtrack::RawTrack;
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Read;
 use std::slice::ChunksExact;
-
-use crate::rawtrack::RawTrack;
+use util::bitstream::BitStreamCollector;
+use util::mfm::MfmEncoder;
+use util::mfm::MfmWord;
+use util::{Bit, DensityMapEntry, PulseDuration};
 
 // info from http://lclevy.free.fr/adflib/adf_info.html
 
@@ -112,14 +111,10 @@ fn generate_amiga_track(cylinder: u32, head: u32, sectors: &mut ChunksExact<u8>)
         generate_amiga_sector(cylinder, head, sector, sectordata, &mut encoder);
     }
 
-    // provide some fluxes to end the track properly.
-    encoder.feed_even16_32(0);
-    encoder.feed_even16_32(0);
-
     trackbuf
 }
 
-pub fn parse_adf_image(path: &str) -> Vec<RawTrack> {
+pub fn parse_adf_image(path: &str) -> RawImage {
     println!("Reading ADF from {} ...", path);
 
     let mut f = File::open(&path).expect("no file found");
@@ -156,7 +151,11 @@ pub fn parse_adf_image(path: &str) -> Vec<RawTrack> {
         }
     }
 
-    tracks
+    RawImage {
+        tracks,
+        density: util::Density::SingleDouble,
+        disk_type: util::DiskType::Inch3_5,
+    }
 }
 
 #[cfg(test)]

@@ -2,10 +2,15 @@ use core::panic;
 use std::cell::RefCell;
 
 use util::{
-    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, DensityMapEntry, Encoding,
-    PulseDuration, RawCellData,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, Density, DensityMapEntry,
+    DiskType, Encoding, PulseDuration, RawCellData,
 };
 
+pub struct RawImage {
+    pub density: Density,
+    pub disk_type: DiskType,
+    pub tracks: Vec<RawTrack>,
+}
 pub struct RawTrack {
     pub cylinder: u32,
     pub head: u32,
@@ -13,6 +18,7 @@ pub struct RawTrack {
     pub densitymap: Vec<DensityMapEntry>,
     pub first_significane_offset: Option<usize>,
     pub encoding: Encoding,
+    pub write_precompensation: u32,
 }
 
 impl RawTrack {
@@ -30,6 +36,7 @@ impl RawTrack {
             densitymap,
             first_significane_offset: None,
             encoding,
+            write_precompensation: 0,
         }
     }
 

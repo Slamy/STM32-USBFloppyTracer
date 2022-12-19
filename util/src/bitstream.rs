@@ -22,16 +22,14 @@ where
     }
 
     pub fn feed(&mut self, cell: Bit) {
-        {
-            self.working_byte <<= 1;
-            if cell.0 {
-                self.working_byte |= 1;
-            }
-            self.bit_i += 1;
-            if self.bit_i == 8 {
-                self.bit_i = 0;
-                (self.sink)(self.working_byte);
-            }
+        self.working_byte <<= 1;
+        if cell.0 {
+            self.working_byte |= 1;
+        }
+        self.bit_i += 1;
+        if self.bit_i == 8 {
+            self.bit_i = 0;
+            (self.sink)(self.working_byte);
         }
     }
 }

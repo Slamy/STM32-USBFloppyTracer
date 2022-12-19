@@ -7,7 +7,7 @@ use stm32f4xx_hal::gpio::{Output, Pin};
 
 use stm32f4xx_hal::pac::{DMA1, TIM4};
 
-const BUFFER_SIZE: usize = 8;
+const BUFFER_SIZE: usize = 16;
 
 // Trackbuffer -> BitStream -> MfmEncoder -> FluxWriter
 

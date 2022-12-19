@@ -1,10 +1,8 @@
-use util::{DensityMapEntry, PulseDuration};
-
+use crate::rawtrack::{RawImage, RawTrack};
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Read;
-
-use crate::rawtrack::RawTrack;
+use util::{DensityMapEntry, PulseDuration};
 
 const G64_SPEED_TABLE: [u32; 4] = [227, 245, 262, 280];
 
@@ -66,7 +64,7 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
     }
 }
 
-pub fn parse_g64_image(path: &str) -> Vec<RawTrack> {
+pub fn parse_g64_image(path: &str) -> RawImage {
     println!("Reading G64 from {} ...", path);
 
     let mut f = File::open(&path).expect("no file found");
@@ -168,5 +166,9 @@ pub fn parse_g64_image(path: &str) -> Vec<RawTrack> {
         }
     }
 
-    tracks
+    RawImage {
+        tracks,
+        disk_type: util::DiskType::Inch5_25,
+        density: util::Density::SingleDouble,
+    }
 }

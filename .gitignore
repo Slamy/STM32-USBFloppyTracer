@@ -16,3 +16,5 @@ target/
 *.adf
 *.d64
 *.g64
+*.st
+*.stx

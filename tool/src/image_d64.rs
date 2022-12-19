@@ -1,13 +1,10 @@
+use crate::rawtrack::{RawImage, RawTrack};
+use std::cell::RefCell;
+use std::fs::{self, File};
+use std::io::Read;
 use util::bitstream::{to_bit_stream, BitStreamCollector};
 use util::gcr::to_gcr_stream;
 use util::{Cylinder, DensityMapEntry, PulseDuration};
-
-use std::cell::RefCell;
-
-use std::fs::{self, File};
-use std::io::Read;
-
-use crate::rawtrack::RawTrack;
 
 struct TrackConfiguration {
     cellsize: usize,
@@ -43,7 +40,7 @@ fn get_track_settings(cyl: Cylinder) -> TrackConfiguration {
     }
 }
 
-pub fn parse_d64_image(path: &str) -> Vec<RawTrack> {
+pub fn parse_d64_image(path: &str) -> RawImage {
     println!("Reading D64 from {} ...", path);
 
     let mut file = File::open(&path).expect("no file found");
@@ -138,5 +135,10 @@ pub fn parse_d64_image(path: &str) -> Vec<RawTrack> {
             util::Encoding::GCR,
         ));
     }
-    tracks
+
+    RawImage {
+        tracks,
+        disk_type: util::DiskType::Inch5_25,
+        density: util::Density::SingleDouble,
+    }
 }

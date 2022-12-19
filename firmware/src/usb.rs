@@ -14,7 +14,7 @@ use crate::{interrupts, safeiprintln};
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
 pub enum Command {
-    WriteVerifyRawTrack(Track, RawCellData, usize),
+    WriteVerifyRawTrack(Track, RawCellData, usize, PulseDuration),
 }
 
 pub struct UsbHandler<'a> {
@@ -27,6 +27,7 @@ pub struct UsbHandler<'a> {
     cylinder: u32,
     head: u32,
     first_significane_offset: u32,
+    write_precompensation: PulseDuration,
 }
 
 impl UsbHandler<'_> {
@@ -44,6 +45,7 @@ impl UsbHandler<'_> {
             cylinder: 0,
             head: 0,
             first_significane_offset: 0,
+            write_precompensation: PulseDuration(0),
         }
     }
 
@@ -78,11 +80,14 @@ impl UsbHandler<'_> {
                             self.remaining_blocks =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
+                            // 00000000 PPPPPPPP HHHHHHHH CCCCCCCC
                             let cylinder_and_head =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
-                            self.cylinder = cylinder_and_head & 0xffff;
-                            self.head = cylinder_and_head >> 16;
+                            self.cylinder = cylinder_and_head & 0xff;
+                            self.head = (cylinder_and_head >> 8) & 0xff;
+                            self.write_precompensation =
+                                PulseDuration(((cylinder_and_head >> 16) & 0xff) as u16);
 
                             self.first_significane_offset =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -168,6 +173,7 @@ impl UsbHandler<'_> {
                                 },
                                 RawCellData::construct(speeds, recv_buffer),
                                 self.first_significane_offset as usize,
+                                self.write_precompensation,
                             ),
                         );
 

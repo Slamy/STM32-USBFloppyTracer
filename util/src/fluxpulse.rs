@@ -9,8 +9,14 @@ where
 {
     sink: T,
     pub cell_duration: u32,
-    pulse_accumulator: u32,
+    pulse_accumulator: i32,
+    pub precompensation: u32,
+    shift_word: u32,
 }
+
+// Write Precompensation is inspired by
+// https://github.com/keirf/greaseweazle/blob/master/src/greaseweazle/track.py#L41
+// Cache and Memory Hierarchy Design: A Performance-directed Approach. Morgan Kaufmann. pp. 644–. ISBN 978-1-55860-136-9.
 
 impl<T> FluxPulseGenerator<T>
 where
@@ -20,17 +26,50 @@ where
         FluxPulseGenerator {
             sink,
             cell_duration,
-            pulse_accumulator: 0,
+            pulse_accumulator: cell_duration as i32 * -2,
+            precompensation: 0,
+            shift_word: 0,
         }
     }
 
-    pub fn feed(&mut self, cell: Bit) {
-        self.pulse_accumulator += self.cell_duration;
+    pub fn flush(&mut self) {
+        self.feed(Bit(false));
+        self.feed(Bit(false));
+    }
 
+    pub fn feed(&mut self, cell: Bit) {
+        self.pulse_accumulator += self.cell_duration as i32;
+
+        // collect incoming cells for later analysis.
+        self.shift_word <<= 1;
         if cell.0 {
+            self.shift_word |= 1
+        }
+
+        // with a window of 5 bitcells we can now perform write precompensation
+        // we have 1 cell now, 2 cells in the past and 2 in the future.
+        // use the center one as the current
+        if (self.shift_word & 0b00100) != 0 {
+            let next_pulse_accu = match self.shift_word & 0b11111 {
+                // there is a very close one in the future. delay the current one.
+                0b00101 => {
+                    self.pulse_accumulator += self.precompensation as i32;
+                    -(self.precompensation as i32)
+                }
+                // there was a very close one in the past. make this one earlier
+                0b10100 => {
+                    self.pulse_accumulator -= self.precompensation as i32;
+                    self.precompensation as i32
+                }
+                _ => 0,
+            };
+
+            // give a pulse to our sink
             (self.sink)(PulseDuration(self.pulse_accumulator as u16));
 
-            self.pulse_accumulator = 0;
+            // apply correction onto the accumulator in the opposite direction to avoid phase changes
+            // for the next pulse.
+            self.pulse_accumulator = next_pulse_accu;
         }
     }
 }
@@ -69,14 +108,87 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cell_to_pulses2_test() {
+    fn cell_to_pulses_wprecomp_test() {
+        let v1: Vec<u8> = vec![
+            1, 0, 0, 1, // 3
+            0, 0, 1, // 3
+            0, 0, 1, // 3
+            0, 1, // 2
+            0, 1, // 2
+            0, 0, 1, // 3
+            0, 1, // 2
+            0, 1, // 2
+            0, 1, // 2
+            0, 0, 1, // 3
+            0, 0, 1, // 3
+            0, 0, 1, // 3
+            0, 0, 1, // 3
+            0, 1, // 2
+            0, 0, 1, // 3
+            0, 0, 1, // 3
+        ];
+        {
+            let mut result: Vec<_> = Vec::new();
+            let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f.0), 100);
+            v1.iter()
+                .for_each(|cell| pulse_generator.feed(Bit(*cell == 1)));
+            pulse_generator.feed(Bit(false));
+            pulse_generator.feed(Bit(false));
+
+            println!("{:?}", result);
+            assert_eq!(
+                result,
+                vec![
+                    100, 300, 300, 300, 200, 200, 300, 200, 200, 200, 300, 300, 300, 300, 200, 300,
+                    300
+                ]
+            );
+        }
+        {
+            let mut result: Vec<_> = Vec::new();
+            let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f.0), 100);
+            pulse_generator.precompensation = 10;
+            v1.iter()
+                .for_each(|cell| pulse_generator.feed(Bit(*cell == 1)));
+            pulse_generator.feed(Bit(false));
+            pulse_generator.feed(Bit(false));
+            let cellsize = 100;
+            let compensation = 10;
+            println!("{:?}", result);
+            assert_eq!(
+                result,
+                vec![
+                    100,
+                    cellsize * 3,
+                    cellsize * 3,
+                    cellsize * 3 + compensation,
+                    cellsize * 2 - compensation,
+                    cellsize * 2 - compensation,
+                    cellsize * 3 + compensation * 2,
+                    cellsize * 2 - compensation,
+                    cellsize * 2,
+                    cellsize * 2 - compensation,
+                    cellsize * 3 + compensation,
+                    cellsize * 3,
+                    cellsize * 3,
+                    cellsize * 3 + compensation,
+                    cellsize * 2 - compensation * 2,
+                    cellsize * 3 + compensation,
+                    cellsize * 3,
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn cell_to_pulses_test() {
         let v1: Vec<u8> = vec![1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1];
         let mut result: Vec<PulseDuration> = Vec::new();
 
         let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f), 100);
         v1.into_iter()
             .for_each(|pulse_duration| pulse_generator.feed(Bit(pulse_duration == 1)));
-
+        pulse_generator.flush();
         println!("{:?}", result);
         assert_eq!(
             result,
@@ -91,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn pulse_to_cell2_test() {
+    fn pulse_to_cell_test() {
         let range: Vec<i32> = vec![-49, -20, 0, 20, 49];
 
         for offset in range {

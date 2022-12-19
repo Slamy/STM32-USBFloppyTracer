@@ -44,7 +44,8 @@ impl RawTrackWriter {
         &mut self,
         track: Track,
         first_significance_offset: usize,
-    ) -> (u8, u8, bool) {
+        write_precompensation: PulseDuration,
+    ) -> Result<(u8, u8, PulseDuration, PulseDuration), (u8, u8)> {
         async_select_and_wait_for_track(track).await;
 
         let mut write_operations = 0;
@@ -58,21 +59,26 @@ impl RawTrackWriter {
                 first_significance_offset
             );
             write_operations += 1;
-            if self.write_track().await == false {
-                return (write_operations, verify_operations, false);
+            if matches!(self.write_track(write_precompensation).await, Err(())) {
+                return Err((write_operations, verify_operations));
             }
 
             for _ in 0..3 {
                 verify_operations += 1;
-                if self.verify_track(first_significance_offset).await {
-                    return (write_operations, verify_operations, true);
+                if let Ok(max_err) = self.verify_track(first_significance_offset).await {
+                    return Ok((
+                        write_operations,
+                        verify_operations,
+                        max_err,
+                        write_precompensation,
+                    ));
                 }
             }
         }
-        return (write_operations, verify_operations, false);
+        Err((write_operations, verify_operations))
     }
 
-    async fn write_track(&mut self) -> bool {
+    async fn write_track(&mut self, write_precompensation: PulseDuration) -> Result<(), ()> {
         // keep it spinning!
         cortex_m::interrupt::free(|cs| {
             interrupts::FLUX_WRITER
@@ -94,9 +100,11 @@ impl RawTrackWriter {
         let track_data_to_write = self.track_data_to_write.take().unwrap();
         let mut parts = track_data_to_write.borrow_parts().iter();
         let part = parts.next().unwrap();
+        let mut pulses_total: u32 = 0;
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
             |f| {
+                pulses_total += f.0 as u32;
                 self.write_prod_cell
                     .borrow_mut()
                     .enqueue(f.0 as u32)
@@ -104,8 +112,11 @@ impl RawTrackWriter {
             },
             part.cell_size.0 as u32,
         );
+
+        write_prod_fpg.precompensation = write_precompensation.0 as u32;
+
         let mut track_data_iter = part.cells.iter();
-        for _ in 0..8 {
+        for _ in 0..16 {
             let mfm_byte = *track_data_iter.next().unwrap();
             to_bit_stream(mfm_byte, |bit| write_prod_fpg.feed(bit));
         }
@@ -117,7 +128,7 @@ impl RawTrackWriter {
 
         if let Err(_) = async_wait_for_transmit().await {
             safeiprintln!("Transmit timeout? Drive not responsing.");
-            return false;
+            return Err(());
         }
 
         // continue until whole track is written.
@@ -141,11 +152,16 @@ impl RawTrackWriter {
             }
         }
 
+        write_prod_fpg.flush();
+
         self.track_data_to_write = Some(track_data_to_write);
-        true
+        Ok(())
     }
 
-    async fn verify_track(&mut self, first_significance_offset: usize) -> bool {
+    async fn verify_track(
+        &mut self,
+        first_significance_offset: usize,
+    ) -> Result<PulseDuration, ()> {
         // Size of sliding window, containing the significant data we use, trying
         // to match the data we read back against the groundtruth data we thought
         // to have written before
@@ -177,8 +193,8 @@ impl RawTrackWriter {
 
         // How similar should the data be against the reference?
         // The minimum similarity is half of the bit cell. But we are better than that!
-        // 30% should be ok!
-        let similarity_treshold = part.cell_size.0 as i16 * 3 / 10;
+        // 35% should be ok!
+        let similarity_treshold = part.cell_size.0 as i32 * 35 / 100;
 
         // prepare compare data around the first significant position to compare the data we read back to
         let flux_data_to_write_queue: RefCell<VecDeque<PulseDuration>> = RefCell::new(
@@ -223,7 +239,7 @@ impl RawTrackWriter {
 
         if let Err(_) = async_wait_for_index().await {
             self.track_data_to_write = Some(track_data_to_write);
-            return false;
+            return Err(());
         };
 
         // throw away first pulses before the point of significance
@@ -240,7 +256,7 @@ impl RawTrackWriter {
                         y2.stop_reception(cs);
                     });
                     self.track_data_to_write = Some(track_data_to_write);
-                    return false;
+                    return Err(());
                 };
 
                 pulses_to_throw_away -= 1;
@@ -259,7 +275,7 @@ impl RawTrackWriter {
                     y2.stop_reception(cs);
                 });
                 self.track_data_to_write = Some(track_data_to_write);
-                return false;
+                return Err(());
             };
             read_mfm_flux_data_queue.push_back(PulseDuration(pulse as u16))
         }
@@ -270,7 +286,7 @@ impl RawTrackWriter {
         // there should be one position where it matches!
         for _ in 0..READ_DATA_WINDOW_SIZE {
             if read_mfm_flux_data_queue.len() < COMPARE_WINDOW_SIZE {
-                safeiprintln!("Unable to verify!");
+                safeiprintln!("Unable to cross correlate!");
 
                 cortex_m::interrupt::free(|cs| {
                     let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
@@ -278,12 +294,12 @@ impl RawTrackWriter {
                     y2.stop_reception(cs);
                 });
                 self.track_data_to_write = Some(track_data_to_write);
-                return false;
+                return Err(());
             }
             equal = read_mfm_flux_data_queue
                 .range(0..COMPARE_WINDOW_SIZE)
                 .zip(flux_data_to_write_queue.borrow().iter())
-                .all(|(x, y)| y.similar(x, similarity_treshold));
+                .all(|(x, y)| y.similar(x, similarity_treshold as i16));
 
             if equal {
                 break;
@@ -293,7 +309,7 @@ impl RawTrackWriter {
         }
 
         if equal == false {
-            return false;
+            return Err(());
         }
 
         // We are now synchronized and shall compare upcoming data
@@ -305,7 +321,7 @@ impl RawTrackWriter {
             if read_mfm_flux_data_queue.len() < 30 {
                 let pulse = self.async_read_flux().await;
                 if pulse == -1 {
-                    return false;
+                    return Err(());
                 };
                 read_mfm_flux_data_queue.push_back(PulseDuration(pulse as u16))
             }
@@ -319,6 +335,8 @@ impl RawTrackWriter {
                         flux_data_to_write_fpg.cell_duration = part.cell_size.0 as u32;
 
                         track_data_to_write_iter = part.cells.iter();
+                    } else {
+                        flux_data_to_write_fpg.flush();
                     }
                 }
             }
@@ -338,7 +356,7 @@ impl RawTrackWriter {
                     (reference.0 as i32).abs_diff(readback.0 as i32),
                 );
 
-                if !reference.similar(&readback, similarity_treshold) {
+                if !reference.similar(&readback, similarity_treshold as i16) {
                     safeiprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
                         reference.0,
@@ -353,7 +371,7 @@ impl RawTrackWriter {
                     });
                     self.track_data_to_write = Some(track_data_to_write);
 
-                    return false;
+                    return Err(());
                 }
                 successful_compares += 1;
             }
@@ -372,6 +390,6 @@ impl RawTrackWriter {
             maximum_diff,
             similarity_treshold
         );
-        true
+        Ok(PulseDuration(maximum_diff as u16))
     }
 }

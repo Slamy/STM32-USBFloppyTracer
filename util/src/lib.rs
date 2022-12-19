@@ -23,13 +23,18 @@ pub enum Encoding {
     GCR,
     MFM,
 }
+#[derive(Clone, Copy, Debug)]
+pub enum DiskType {
+    Inch3_5,
+    Inch5_25,
+}
 
 pub enum DriveSelectState {
     None,
     A,
     B,
 }
-
+#[derive(Clone, Copy, Debug)]
 pub enum Density {
     High,
     SingleDouble,

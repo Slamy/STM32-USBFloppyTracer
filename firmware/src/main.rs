@@ -244,6 +244,7 @@ fn main() -> ! {
                 track,
                 raw_cell_data,
                 first_significance_offset,
+                write_precompensation,
             )) => {
                 if in_write_protect.is_low() {
                     safeiprintln!("Write Protection is active!");
@@ -274,22 +275,28 @@ fn main() -> ! {
                     });
 
                     raw_track_writer.track_data_to_write = Some(raw_cell_data);
-                    let write_verify_fut = Box::pin(
-                        raw_track_writer.write_and_verify(track, first_significance_offset),
-                    );
+                    let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
+                        track,
+                        first_significance_offset,
+                        write_precompensation,
+                    ));
                     let cm = Cassette::new(write_verify_fut);
                     let result = cm.block_on();
 
-                    let str_response = if result.2 {
-                        format!(
-                            "WrittenAndVerified {} {} {} {}",
-                            track.cylinder.0, track.head.0, result.0, result.1
-                        )
-                    } else {
-                        format!(
+                    let str_response = match result {
+                        Ok((writes, verifies, max_err, write_precompensation)) => format!(
+                            "WrittenAndVerified {} {} {} {} {} {}",
+                            track.cylinder.0,
+                            track.head.0,
+                            writes,
+                            verifies,
+                            max_err.0,
+                            write_precompensation.0
+                        ),
+                        Err((writes, verifies)) => format!(
                             "Fail {} {} {} {}",
-                            track.cylinder.0, track.head.0, result.0, result.1
-                        )
+                            track.cylinder.0, track.head.0, writes, verifies
+                        ),
                     };
 
                     cortex_m::interrupt::free(|cs| {
