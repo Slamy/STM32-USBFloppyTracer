@@ -12,6 +12,8 @@ where
     pulse_accumulator: i32,
     pub precompensation: u32,
     shift_word: u32,
+    non_flux_reversal_state: bool,
+    pub activate_non_flux_reversal_fixer: bool,
 }
 
 // Write Precompensation is inspired by
@@ -26,13 +28,19 @@ where
         FluxPulseGenerator {
             sink,
             cell_duration,
-            pulse_accumulator: cell_duration as i32 * -2,
+            pulse_accumulator: cell_duration as i32 * -5,
             precompensation: 0,
             shift_word: 0,
+            non_flux_reversal_state: false,
+            activate_non_flux_reversal_fixer: false,
         }
     }
 
     pub fn flush(&mut self) {
+        self.activate_non_flux_reversal_fixer = false;
+        self.feed(Bit(false));
+        self.feed(Bit(false));
+        self.feed(Bit(false));
         self.feed(Bit(false));
         self.feed(Bit(false));
     }
@@ -46,11 +54,22 @@ where
             self.shift_word |= 1
         }
 
+        if self.non_flux_reversal_state {
+            (self.sink)(PulseDuration(self.pulse_accumulator));
+            self.pulse_accumulator = 0;
+            if (self.shift_word & 0b00100_000) != 0 {
+                self.non_flux_reversal_state = false;
+            }
+        }
         // with a window of 5 bitcells we can now perform write precompensation
         // we have 1 cell now, 2 cells in the past and 2 in the future.
         // use the center one as the current
-        if (self.shift_word & 0b00100) != 0 {
-            let next_pulse_accu = match self.shift_word & 0b11111 {
+        else if (self.shift_word & 0b00100_000) != 0 {
+            if self.shift_word & 0b011111 == 0 && self.activate_non_flux_reversal_fixer {
+                self.non_flux_reversal_state = true;
+            }
+
+            let next_pulse_accu = match (self.shift_word >> 3) & 0b11111 {
                 // there is a very close one in the future. delay the current one.
                 0b00101 => {
                     self.pulse_accumulator += self.precompensation as i32;
@@ -65,7 +84,7 @@ where
             };
 
             // give a pulse to our sink
-            (self.sink)(PulseDuration(self.pulse_accumulator as u16));
+            (self.sink)(PulseDuration(self.pulse_accumulator as i32));
 
             // apply correction onto the accumulator in the opposite direction to avoid phase changes
             // for the next pulse.
@@ -79,14 +98,14 @@ where
     T: FnMut(Bit),
 {
     sink: T,
-    pub cell_duration: u16,
+    pub cell_duration: i32,
 }
 
 impl<T> FluxPulseToCells<T>
 where
     T: FnMut(Bit),
 {
-    pub fn new(sink: T, cell_duration: u16) -> FluxPulseToCells<T> {
+    pub fn new(sink: T, cell_duration: i32) -> FluxPulseToCells<T> {
         FluxPulseToCells {
             sink,
             cell_duration,
@@ -105,7 +124,51 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::bitstream::{to_bit_stream, BitStreamCollector};
+
     use super::*;
+
+    #[test]
+    fn non_flux_reversal_area_test() {
+        let expected_write_data: Vec<u8> = vec![
+            0b01010101, //
+            0b01010101, //
+            0b01010101, 0b01000100, 0b10001010, //
+            0b11111111, 0b11111111, 0b11111111, //
+            0b01010001, //
+            0b00010101, //
+        ];
+
+        let expected_actual_data_on_disk: Vec<u8> = vec![
+            0b01010101, //
+            0b01010101, //
+            0b01010101, 0b01000100, 0b10001010, //
+            0b10000000, 0b00000000, 0b00000001, //
+            0b01010001, //
+            0b00010101, //
+        ];
+
+        let mut write_data = Vec::new();
+        let mut collector = BitStreamCollector::new(|f| write_data.push(f));
+        let mut pulseparser = FluxPulseToCells {
+            sink: |val| collector.feed(val),
+            cell_duration: 100,
+        };
+        let mut pulse_generator = FluxPulseGenerator::new(|f| pulseparser.feed(f), 100);
+        pulse_generator.activate_non_flux_reversal_fixer = true;
+
+        expected_actual_data_on_disk
+            .iter()
+            .for_each(|f| to_bit_stream(*f, |g| pulse_generator.feed(g)));
+        pulse_generator.flush();
+
+        write_data
+            .iter()
+            .zip(expected_write_data.iter())
+            .for_each(|f| println!("{:08b} {:08b}", f.0, f.1));
+
+        assert_eq!(write_data, expected_write_data);
+    }
 
     #[test]
     fn cell_to_pulses_wprecomp_test() {
@@ -132,8 +195,7 @@ mod tests {
             let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f.0), 100);
             v1.iter()
                 .for_each(|cell| pulse_generator.feed(Bit(*cell == 1)));
-            pulse_generator.feed(Bit(false));
-            pulse_generator.feed(Bit(false));
+            pulse_generator.flush();
 
             println!("{:?}", result);
             assert_eq!(
@@ -150,8 +212,8 @@ mod tests {
             pulse_generator.precompensation = 10;
             v1.iter()
                 .for_each(|cell| pulse_generator.feed(Bit(*cell == 1)));
-            pulse_generator.feed(Bit(false));
-            pulse_generator.feed(Bit(false));
+            pulse_generator.flush();
+
             let cellsize = 100;
             let compensation = 10;
             println!("{:?}", result);
@@ -184,8 +246,8 @@ mod tests {
     fn cell_to_pulses_test() {
         let v1: Vec<u8> = vec![1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1];
         let mut result: Vec<PulseDuration> = Vec::new();
-
         let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f), 100);
+        pulse_generator.activate_non_flux_reversal_fixer = false;
         v1.into_iter()
             .for_each(|pulse_duration| pulse_generator.feed(Bit(pulse_duration == 1)));
         pulse_generator.flush();
@@ -208,10 +270,10 @@ mod tests {
 
         for offset in range {
             let v1 = vec![
-                PulseDuration((300 + offset) as u16),
-                PulseDuration((200 + offset) as u16),
-                PulseDuration((100 + offset) as u16),
-                PulseDuration((500 + offset) as u16),
+                PulseDuration(300 + offset),
+                PulseDuration(200 + offset),
+                PulseDuration(100 + offset),
+                PulseDuration(500 + offset),
             ];
 
             let mut result: Vec<u32> = Vec::new();

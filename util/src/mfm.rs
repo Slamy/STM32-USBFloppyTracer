@@ -23,6 +23,11 @@ const ISO_SYNC_WORD: u16 = 0x4489;
  Clk  0 0 0 0 1 1 1 0
  MFM  0100010010101001   0x44A9 as it would be if encoded correctly
  Sync 0100010010001001   0x4489 is damaged to be detected separate to normal data.
+
+ Gap Byte 0x4e as Mfm Word 0x9254
+ Data  0 1 0 0 1 1 1 0
+ Clk  1 0 0 1 0 1 0 0
+ MFM  1001001001010100
 */
 impl<T> MfmEncoder<T>
 where
@@ -81,6 +86,26 @@ where
         }
     }
 
+    pub fn feed_raw8(&mut self, mut val: u8) {
+        self.last_bit = Bit((val & 0x01) != 0);
+
+        for _ in 0..8 {
+            (self.sink)(Bit((val & 0x80) != 0));
+            val <<= 1;
+        }
+    }
+
+    pub fn feed_raw_var(&mut self, mut val: u32, len: u8) {
+        self.last_bit = Bit((val & 0x01) != 0);
+
+        let bitmask = 1 << (len - 1);
+
+        for _ in 0..len {
+            (self.sink)(Bit((val & bitmask) != 0));
+            val <<= 1;
+        }
+    }
+
     pub fn feed(&mut self, inval: MfmWord) {
         match inval {
             MfmWord::Enc(x) => self.feed_encoded8(x),
@@ -102,6 +127,7 @@ where
     shift_count: u8,
     in_sync: bool,
     zero_count: i32,
+    pub sync_detector_active: bool,
 }
 
 impl<T> MfmDecoder<T>
@@ -116,6 +142,7 @@ where
             shift_count: 0,
             in_sync: false,
             zero_count: 0,
+            sync_detector_active: true,
         }
     }
 
@@ -124,19 +151,17 @@ where
             self.zero_count = 0;
         } else {
             self.zero_count += 1;
-
-            if self.zero_count >= 4 {
-                self.in_sync = false;
-            }
         }
 
-        self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
-        if (self.sync_buffer & 0xffffffffffff) == 0x448944894489 {
-            self.in_sync = true;
-            self.shift_count = 0;
-            self.byte_buffer = 0;
-            (self.sink)(MfmWord::SyncWord);
-            return;
+        if self.sync_detector_active {
+            self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
+            if (self.sync_buffer & 0xffffffffffff) == 0x448944894489 {
+                self.in_sync = true;
+                self.shift_count = 0;
+                self.byte_buffer = 0;
+                (self.sink)(MfmWord::SyncWord);
+                return;
+            }
         }
 
         if self.in_sync {

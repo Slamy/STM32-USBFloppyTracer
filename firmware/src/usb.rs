@@ -1,7 +1,7 @@
 use core::{cell::RefCell, convert::TryInto};
 
 use alloc::vec::Vec;
-use cortex_m::interrupt::{Mutex};
+use cortex_m::interrupt::Mutex;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
@@ -87,7 +87,7 @@ impl UsbHandler<'_> {
                             self.cylinder = cylinder_and_head & 0xff;
                             self.head = (cylinder_and_head >> 8) & 0xff;
                             self.write_precompensation =
-                                PulseDuration(((cylinder_and_head >> 16) & 0xff) as u16);
+                                PulseDuration(((cylinder_and_head >> 16) & 0xff) as i32);
 
                             self.first_significane_offset =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -101,7 +101,7 @@ impl UsbHandler<'_> {
 
                                 self.speeds.push(DensityMapEntry {
                                     number_of_cells: (table_entry >> 9) as usize,
-                                    cell_size: (PulseDuration((table_entry & 0x1ff) as u16)),
+                                    cell_size: (PulseDuration((table_entry & 0x1ff) as i32)),
                                 });
                             }
                             self.receive_buffer.reserve(self.expected_size);

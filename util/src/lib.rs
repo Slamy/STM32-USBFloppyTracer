@@ -102,7 +102,7 @@ impl RawCellData {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PulseDuration(pub u16);
+pub struct PulseDuration(pub i32);
 
 impl PartialEq<bool> for Bit {
     fn eq(&self, other: &bool) -> bool {
@@ -111,7 +111,7 @@ impl PartialEq<bool> for Bit {
 }
 
 impl PulseDuration {
-    pub fn similar(&self, other: &PulseDuration, threshold: i16) -> bool {
-        i16::abs(self.0 as i16 - other.0 as i16) < threshold
+    pub fn similar(&self, other: &PulseDuration, threshold: i32) -> bool {
+        i32::abs(self.0 - other.0) < threshold
     }
 }

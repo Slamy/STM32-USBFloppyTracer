@@ -9,6 +9,7 @@ use crate::usb_commands::{wait_for_answer, wait_for_last_answer, write_raw_track
 use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
 use image_iso::parse_iso_image;
+use image_stx::parse_stx_image;
 use pretty_hex::{HexConfig, PrettyHex};
 use rawtrack::RawImage;
 use rusb::{Context, DeviceHandle};
@@ -26,6 +27,7 @@ pub mod image_d64;
 pub mod image_g64;
 pub mod image_ipf;
 pub mod image_iso;
+pub mod image_stx;
 pub mod rawtrack;
 pub mod usb_commands;
 pub mod usb_device;
@@ -72,6 +74,7 @@ fn parse_image(path: &str) -> RawImage {
         "d64" => parse_d64_image(path),
         "g64" => parse_g64_image(path),
         "st" => parse_iso_image(path),
+        "stx" => parse_stx_image(path),
         _ => panic!("{} is an unknown file extension!", extension),
     }
 }
@@ -257,6 +260,16 @@ mod tests {
         "../images/Katakis (Side 1).g64",
         "53c47c575d057181a1911e6653229324",
         "3b031710072ec07d39120c9d57f8ff50"
+    )]
+    #[case(
+        "../images/Turrican (1990)(Rainbow Arts).stx",
+        "4865957cd83562547a722c95e9a5421a",
+        "8367a02c247e80d230f01c1841dddf1b"
+    )]
+    #[case(
+        "../images/Turrican II (1991)(Rainbow Arts).stx",
+        "fb96a28ad633208a973e725ceb67c155",
+        "607fdb79439af4e7b191a0c2c848b61f"
     )]
     fn known_image_regression_test(
         #[case] filepath: &str,

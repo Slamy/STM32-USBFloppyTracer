@@ -23,6 +23,13 @@ pub struct RawTrackWriter {
     pub timeout_cnt: u32,
 }
 
+enum RawTrackError {
+    NoIndexPulse,
+    NoIncomingData,
+    NoCrossCorrelation,
+    DataNotEqual,
+}
+
 impl RawTrackWriter {
     fn async_read_flux(&mut self) -> impl Future<Output = i32> + '_ {
         self.timeout_cnt = 800;
@@ -63,15 +70,44 @@ impl RawTrackWriter {
                 return Err((write_operations, verify_operations));
             }
 
-            for _ in 0..3 {
+            for read_try in 0..3 {
                 verify_operations += 1;
-                if let Ok(max_err) = self.verify_track(first_significance_offset).await {
-                    return Ok((
-                        write_operations,
-                        verify_operations,
-                        max_err,
-                        write_precompensation,
-                    ));
+
+                let verify_result = self.verify_track(first_significance_offset).await;
+                match verify_result {
+                    Ok(max_err) => {
+                        return Ok((
+                            write_operations,
+                            verify_operations,
+                            max_err,
+                            write_precompensation,
+                        ));
+                    }
+                    Err(RawTrackError::DataNotEqual) => {
+                        // We shall do nothing. Maybe it was a fluke?
+                        // Just read again...
+                    }
+                    Err(RawTrackError::NoCrossCorrelation) if read_try == 0 => {
+                        // This happens sometimes. Nothing to worry about.
+                        // This usually occurs with longer tracks as the read head
+                        // must recalibrate.
+                        // Just read again...
+                    }
+                    Err(RawTrackError::NoCrossCorrelation) => {
+                        // Ok now this is bad.
+                        // Abort reading and write again. This won't get any better.
+                        // This can occur if the write process overwrites the start of the track.
+                        // A fluctuation in the rotation speed causes this.
+                        break;
+                    }
+                    Err(RawTrackError::NoIncomingData) => {
+                        // Abort. Drive not responding
+                        return Err((write_operations, verify_operations));
+                    }
+                    Err(RawTrackError::NoIndexPulse) => {
+                        // Abort. Drive not responding
+                        return Err((write_operations, verify_operations));
+                    }
                 }
             }
         }
@@ -100,11 +136,9 @@ impl RawTrackWriter {
         let track_data_to_write = self.track_data_to_write.take().unwrap();
         let mut parts = track_data_to_write.borrow_parts().iter();
         let part = parts.next().unwrap();
-        let mut pulses_total: u32 = 0;
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
             |f| {
-                pulses_total += f.0 as u32;
                 self.write_prod_cell
                     .borrow_mut()
                     .enqueue(f.0 as u32)
@@ -114,9 +148,11 @@ impl RawTrackWriter {
         );
 
         write_prod_fpg.precompensation = write_precompensation.0 as u32;
-
+        write_prod_fpg.activate_non_flux_reversal_fixer = true;
         let mut track_data_iter = part.cells.iter();
-        for _ in 0..16 {
+
+        // prefill buffer with first data
+        while self.write_prod_cell.borrow().len() < 70 {
             let mfm_byte = *track_data_iter.next().unwrap();
             to_bit_stream(mfm_byte, |bit| write_prod_fpg.feed(bit));
         }
@@ -134,6 +170,8 @@ impl RawTrackWriter {
         // continue until whole track is written.
         // TODO copy pasta
         while let Some(mfm_byte) = track_data_iter.next() {
+            assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
+
             while self.write_prod_cell.borrow().len() > 70 {
                 cassette::yield_now().await;
             }
@@ -145,6 +183,8 @@ impl RawTrackWriter {
 
             write_prod_fpg.cell_duration = part.cell_size.0 as u32;
             while let Some(mfm_byte) = track_data_iter.next() {
+                assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
+
                 while self.write_prod_cell.borrow().len() > 70 {
                     cassette::yield_now().await;
                 }
@@ -161,7 +201,7 @@ impl RawTrackWriter {
     async fn verify_track(
         &mut self,
         first_significance_offset: usize,
-    ) -> Result<PulseDuration, ()> {
+    ) -> Result<PulseDuration, RawTrackError> {
         // Size of sliding window, containing the significant data we use, trying
         // to match the data we read back against the groundtruth data we thought
         // to have written before
@@ -239,7 +279,7 @@ impl RawTrackWriter {
 
         if let Err(_) = async_wait_for_index().await {
             self.track_data_to_write = Some(track_data_to_write);
-            return Err(());
+            return Err(RawTrackError::NoIndexPulse);
         };
 
         // throw away first pulses before the point of significance
@@ -256,7 +296,7 @@ impl RawTrackWriter {
                         y2.stop_reception(cs);
                     });
                     self.track_data_to_write = Some(track_data_to_write);
-                    return Err(());
+                    return Err(RawTrackError::NoIncomingData);
                 };
 
                 pulses_to_throw_away -= 1;
@@ -275,9 +315,9 @@ impl RawTrackWriter {
                     y2.stop_reception(cs);
                 });
                 self.track_data_to_write = Some(track_data_to_write);
-                return Err(());
+                return Err(RawTrackError::NoIncomingData);
             };
-            read_mfm_flux_data_queue.push_back(PulseDuration(pulse as u16))
+            read_mfm_flux_data_queue.push_back(PulseDuration(pulse))
         }
 
         let mut equal = false; // set to true if correlation is found
@@ -294,12 +334,12 @@ impl RawTrackWriter {
                     y2.stop_reception(cs);
                 });
                 self.track_data_to_write = Some(track_data_to_write);
-                return Err(());
+                return Err(RawTrackError::NoCrossCorrelation);
             }
             equal = read_mfm_flux_data_queue
                 .range(0..COMPARE_WINDOW_SIZE)
                 .zip(flux_data_to_write_queue.borrow().iter())
-                .all(|(x, y)| y.similar(x, similarity_treshold as i16));
+                .all(|(x, y)| y.similar(x, similarity_treshold));
 
             if equal {
                 break;
@@ -308,22 +348,19 @@ impl RawTrackWriter {
             read_mfm_flux_data_queue.pop_front();
         }
 
-        if equal == false {
-            return Err(());
-        }
+        assert!(equal); // program flow check
 
         // We are now synchronized and shall compare upcoming data
         let mut maximum_diff = 0;
         let mut successful_compares = 0;
+
         loop {
             // read more data from the incoming flux stream and
             // put it into our compare buffer
             if read_mfm_flux_data_queue.len() < 30 {
-                let pulse = self.async_read_flux().await;
-                if pulse == -1 {
-                    return Err(());
-                };
-                read_mfm_flux_data_queue.push_back(PulseDuration(pulse as u16))
+                if let Some(pulse) = self.read_cons.dequeue() {
+                    read_mfm_flux_data_queue.push_back(PulseDuration(pulse as i32))
+                }
             }
 
             // generate more pulse data from the groundtruth data
@@ -351,12 +388,12 @@ impl RawTrackWriter {
                 let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
                 let readback = read_mfm_flux_data_queue.pop_front().unwrap();
 
-                maximum_diff = max(
-                    maximum_diff,
-                    (reference.0 as i32).abs_diff(readback.0 as i32),
-                );
-
-                if !reference.similar(&readback, similarity_treshold as i16) {
+                if reference.0 > part.cell_size.0 * 10 {
+                    // Non Flux Reversal Detected. Some cleanup needed.
+                    // TODO Is this really the best approach to fix this?
+                    // It is also pretty random. Sometimes it doesn't work at all.
+                    flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+                } else if !reference.similar(&readback, similarity_treshold) {
                     safeiprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
                         reference.0,
@@ -371,7 +408,9 @@ impl RawTrackWriter {
                     });
                     self.track_data_to_write = Some(track_data_to_write);
 
-                    return Err(());
+                    return Err(RawTrackError::DataNotEqual);
+                } else {
+                    maximum_diff = max(maximum_diff, (reference.0).abs_diff(readback.0));
                 }
                 successful_compares += 1;
             }
@@ -390,6 +429,6 @@ impl RawTrackWriter {
             maximum_diff,
             similarity_treshold
         );
-        Ok(PulseDuration(maximum_diff as u16))
+        Ok(PulseDuration(maximum_diff as i32))
     }
 }

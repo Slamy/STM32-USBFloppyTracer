@@ -36,13 +36,13 @@ fn calculate_floppy_geometry(number_bytes: u32) -> (u32, u32) {
 
 struct IsoGeometry {
     sectors_per_track: u32,
-    gap1_size: i32,  // after index pulse, 60x 0x4E
-    gap2_size: i32,  // 12x 0x00 before sector header
-    gap3a_size: i32, // 22x 0x4E after sector header
-    gap3b_size: i32, // 12x 0x00 before actual data
-    gap4_size: i32,  // 40x 0x4E after data
-    gap5_size: i32,  // ends the track, not really sure what this value shall be...
-    interleaving: u32,
+    gap1_size: i32,    // after index pulse, 60x 0x4E
+    gap2_size: i32,    // 12x 0x00 before sector header
+    gap3a_size: i32,   // 22x 0x4E after sector header
+    gap3b_size: i32,   // 12x 0x00 before actual data
+    gap4_size: i32,    // 40x 0x4E after data
+    gap5_size: i32,    // ends the track, not really sure what this value shall be...
+    interleaving: u32, // with 0 no interleaving applied
 }
 
 impl IsoGeometry {
@@ -94,9 +94,7 @@ pub fn generate_iso_sectorheader<T>(
 ) where
     T: FnMut(Bit),
 {
-    for _ in 0..gap2_size {
-        encoder.feed_encoded8(0x00);
-    }
+    generate_iso_gap(gap2_size, 0, encoder);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
@@ -126,21 +124,35 @@ where
     T: FnMut(Bit),
 {
     // now the actual data of the sector
-    for _ in 0..gap3b_size {
-        encoder.feed_encoded8(0x00);
-    }
+    generate_iso_gap(gap3b_size, 0, encoder);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed_encoded8(0xfb);
 }
 
-pub fn generate_iso_gap<T>(gap_size: usize, encoder: &mut MfmEncoder<T>)
+pub fn generate_iso_data_with_crc<T>(sectordata: &[u8], encoder: &mut MfmEncoder<T>)
+where
+    T: FnMut(Bit),
+{
+    let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
+    crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
+    crc.update(&sectordata);
+    let crc16 = crc.get();
+
+    sectordata
+        .iter()
+        .for_each(|byte| encoder.feed_encoded8(*byte));
+    encoder.feed_encoded8((crc16 >> 8) as u8);
+    encoder.feed_encoded8((crc16 & 0xff) as u8);
+}
+
+pub fn generate_iso_gap<T>(gap_size: usize, value: u8, encoder: &mut MfmEncoder<T>)
 where
     T: FnMut(Bit),
 {
     for _ in 0..gap_size {
-        encoder.feed_encoded8(0x4e);
+        encoder.feed_encoded8(value);
     }
 }
 
@@ -177,7 +189,7 @@ fn generate_iso_track(
     );
 
     // just after the index pulse
-    generate_iso_gap(geometry.gap1_size as usize, &mut encoder);
+    generate_iso_gap(geometry.gap1_size as usize, 0x4e, &mut encoder);
 
     for index in interleaving_table {
         let (idam_sector, sectordata) = sectors[index];
@@ -194,25 +206,15 @@ fn generate_iso_track(
         );
 
         // the gap between sector header and data
-        generate_iso_gap(geometry.gap3a_size as usize, &mut encoder);
+        generate_iso_gap(geometry.gap3a_size as usize, 0x4e, &mut encoder);
         generate_iso_data_header(geometry.gap3b_size as usize, &mut encoder);
-
-        let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-        crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
-        crc.update(&sectordata);
-        let crc16 = crc.get();
-
-        sectordata
-            .iter()
-            .for_each(|byte| encoder.feed_encoded8(*byte));
-        encoder.feed_encoded8((crc16 >> 8) as u8);
-        encoder.feed_encoded8((crc16 & 0xff) as u8);
+        generate_iso_data_with_crc(&sectordata, &mut encoder);
 
         // gap after the sector
-        generate_iso_gap(geometry.gap4_size as usize, &mut encoder);
+        generate_iso_gap(geometry.gap4_size as usize, 0x4e, &mut encoder);
     }
     // end the track
-    generate_iso_gap(geometry.gap5_size as usize, &mut encoder);
+    generate_iso_gap(geometry.gap5_size as usize, 0x4e, &mut encoder);
 
     trackbuf
 }

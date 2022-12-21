@@ -1,4 +1,4 @@
-use crate::rawtrack::{RawImage, RawTrack};
+use crate::rawtrack::{auto_cell_size, RawImage, RawTrack, DRIVE_5_25_RPM};
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Read;
@@ -15,16 +15,6 @@ fn u8_buf_to_u32_buf(byte_buffer: &[u8]) -> Vec<u32> {
         .collect();
 
     u32_buffer
-}
-
-fn auto_cell_size(tracklen: u32) -> f64 {
-    let number_cells = tracklen * 8;
-    let rpm = 361.0; // Normally 360 RPM would be correct. But the drive might be faster. Let's be safe here.
-    let seconds_per_revolution = 60.0 / rpm;
-    let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / number_cells as f64;
-    let stm_timer_mhz = 84.0;
-    let raw_timer_val = stm_timer_mhz * microseconds_per_cell;
-    raw_timer_val
 }
 
 fn patch_cell_size(file_hash_str: &str, cyl: u8) -> Option<u32> {
@@ -125,7 +115,7 @@ pub fn parse_g64_image(path: &str) -> RawImage {
                 }
             }
 
-            let auto_cell_size = auto_cell_size(trackdata_copy.len() as u32) as u32;
+            let auto_cell_size = auto_cell_size(trackdata_copy.len() as u32, DRIVE_5_25_RPM) as u32;
 
             println!(
                 "Track {} Len {:?} cellsize {} auto_cell_size {}",
@@ -153,7 +143,7 @@ pub fn parse_g64_image(path: &str) -> RawImage {
 
             let densitymap = vec![DensityMapEntry {
                 number_of_cells: trackdata_copy.len() as usize,
-                cell_size: PulseDuration(cellsize as u16),
+                cell_size: PulseDuration(cellsize as i32),
             }];
 
             tracks.push(RawTrack::new(
