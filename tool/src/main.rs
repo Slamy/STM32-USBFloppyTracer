@@ -5,17 +5,20 @@
 
 use crate::image_g64::parse_g64_image;
 use crate::image_ipf::parse_ipf_image;
+use crate::usb_commands::{wait_for_answer, wait_for_last_answer, write_raw_track};
 use image_adf::parse_adf_image;
 use image_d64::parse_d64_image;
 use image_iso::parse_iso_image;
-use rawtrack::{RawImage, RawTrack};
+use pretty_hex::{HexConfig, PrettyHex};
+use rawtrack::RawImage;
 use rusb::{Context, DeviceHandle};
+use std::fs::{self, File};
+use std::io::{BufWriter, Read, Write};
 use std::process::exit;
-use std::slice::Iter;
-use std::time::Duration;
 use std::{ffi::OsStr, path::Path};
-use usb::init_usb;
-use util::{Density, DriveSelectState};
+use usb_commands::configure_device;
+use usb_device::{clear_buffers, init_usb};
+use util::DriveSelectState;
 use write_precompensation::{write_precompensation_calibration, WritePrecompDb};
 
 pub mod image_adf;
@@ -24,7 +27,8 @@ pub mod image_g64;
 pub mod image_ipf;
 pub mod image_iso;
 pub mod rawtrack;
-pub mod usb;
+pub mod usb_commands;
+pub mod usb_device;
 pub mod write_precompensation;
 
 use clap::Parser;
@@ -34,6 +38,10 @@ use clap::Parser;
 struct Args {
     /// Path to disk image
     filepath: String,
+
+    /// Write raw track data to file. No USB communication
+    #[arg(short)]
+    debug_text_file: Option<String>,
 
     /// Use drive A
     #[arg(short, default_value_t = false)]
@@ -52,195 +60,11 @@ struct Args {
     flippy: bool,
 }
 
-fn configure_device(
-    handles: &(DeviceHandle<Context>, u8, u8),
-    select_drive: DriveSelectState,
-    density: Density,
-) {
-    let (handle, _endpoint_in, endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    let mut command_buf = [0u8; 8];
-
-    let mut writer = command_buf.chunks_mut(4);
-
-    let mut settings = 0;
-
-    if matches!(select_drive, DriveSelectState::B) {
-        settings |= 1;
-    }
-
-    if matches!(density, Density::High) {
-        settings |= 2;
-    }
-
-    writer
-        .next()
-        .unwrap()
-        .clone_from_slice(&u32::to_le_bytes(0x12340002));
-
-    writer
-        .next()
-        .unwrap()
-        .clone_from_slice(&u32::to_le_bytes(settings));
-
-    handle
-        .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
-}
-
-fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {
-    let (handle, _endpoint_in, endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    let mut command_buf = [0u8; 64];
-
-    let expected_size = track.raw_data.len();
-    let mut remaining_blocks = expected_size / 64;
-    if expected_size % 64 != 0 {
-        remaining_blocks += 1;
-    }
-
-    println!(
-        "Request write and verify of Cyl:{} Head:{} WritePrecomp:{}",
-        track.cylinder, track.head, track.write_precompensation
-    );
-
-    let mut writer = command_buf.chunks_mut(4);
-
-    let header = vec![
-        0x12340001,
-        expected_size as u32,
-        remaining_blocks as u32,
-        track.cylinder | (track.head << 8) | (track.write_precompensation << 16),
-        track.first_significane_offset.unwrap() as u32,
-        track.densitymap.len() as u32,
-    ];
-
-    for i in header {
-        writer
-            .next()
-            .unwrap()
-            .clone_from_slice(&u32::to_le_bytes(i));
-    }
-
-    for density_entry in track.densitymap.iter() {
-        assert!(density_entry.cell_size.0 < 512);
-
-        writer.next().unwrap().clone_from_slice(&u32::to_le_bytes(
-            ((density_entry.number_of_cells as u32) << 9) | density_entry.cell_size.0 as u32,
-        ));
-    }
-
-    handle
-        .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
-
-    for block in track.raw_data.chunks(64) {
-        handle.write_bulk(*endpoint_out, block, timeout).unwrap();
-    }
-}
-
-fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_track: &RawTrack) {
-    let (handle, endpoint_in, _endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    loop {
-        let mut in_buf = [0u8; 64];
-
-        let size = handle
-            .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
-
-        let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(" ").collect();
-
-        match response_split[0] {
-            "WrittenAndVerified" => {
-                println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
-                    response_split[1],
-                    response_split[2],
-                    response_split[3],
-                    response_split[4],
-                    response_split[5],
-                    response_split[6],
-                );
-                assert_eq!(verify_track.cylinder, response_split[1].parse().unwrap());
-                assert_eq!(verify_track.head, response_split[2].parse().unwrap());
-                break;
-            }
-            "GotCmd" => {} // Ignore
-            "Fail" => panic!(
-                "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
-                response_split[1], response_split[2], response_split[3], response_split[4],
-            ),
-            _ => panic!("Unexpected answer from device: {}", response_text),
-        }
-    }
-}
-
-fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
-    let (handle, endpoint_in, _endpoint_out) = handles;
-    let timeout = Duration::from_millis(10);
-    let mut in_buf = [0u8; 64];
-
-    loop {
-        let Ok(size) = handle.read_bulk(*endpoint_in, &mut in_buf, timeout) else {
-            return;
-        };
-        println!("Cleared residual USB buffer of size {}", size);
-    }
-}
-
-fn wait_for_answer(
-    handles: &(DeviceHandle<Context>, u8, u8),
-    verify_iterator: &mut Iter<RawTrack>,
-) {
-    let (handle, endpoint_in, _endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    loop {
-        let mut in_buf = [0u8; 64];
-
-        let size = handle
-            .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
-
-        let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(" ").collect();
-
-        match response_split[0] {
-            "WrittenAndVerified" => {
-                println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
-                    response_split[1],
-                    response_split[2],
-                    response_split[3],
-                    response_split[4],
-                    response_split[5],
-                    response_split[6],
-                );
-                let expected_to_verify = verify_iterator.next().unwrap();
-                assert_eq!(
-                    expected_to_verify.cylinder,
-                    response_split[1].parse().unwrap()
-                );
-                assert_eq!(expected_to_verify.head, response_split[2].parse().unwrap());
-            }
-            "GotCmd" => break, // Continue with next track!
-            "Fail" => panic!(
-                "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
-                response_split[1], response_split[2], response_split[3], response_split[4],
-            ),
-            "WriteProtected" => panic!("Disk is write protected!"),
-            _ => panic!("Unexpected answer from device: {}", response_text),
-        }
-    }
-}
-
 fn parse_image(path: &str) -> RawImage {
-    let extension = Path::new(path).extension().and_then(OsStr::to_str).unwrap();
+    let extension = Path::new(path)
+        .extension()
+        .and_then(OsStr::to_str)
+        .expect("Unknown file extension!");
 
     match extension {
         "ipf" => parse_ipf_image(path),
@@ -268,6 +92,59 @@ fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: 
     }
 
     println!("--- Disk Image written and verified! ---")
+}
+
+fn write_debug_text_file(path: &str, image: RawImage) {
+    let f = File::create(path).expect("Unable to create file");
+    let mut f = BufWriter::new(f);
+
+    let cfg = HexConfig {
+        title: true,
+        ascii: false,
+        width: 16,
+        group: 0,
+        chunk: 1,
+        ..HexConfig::default()
+    };
+
+    let mut context = md5::Context::new();
+
+    for track in image.tracks.iter() {
+        context.consume(u32::to_le_bytes(track.cylinder));
+        context.consume(u32::to_le_bytes(track.head));
+        track.densitymap.iter().for_each(|g| {
+            context.consume(i32::to_le_bytes(g.cell_size.0 as i32));
+            context.consume(usize::to_le_bytes(g.number_of_cells));
+        });
+        context.consume(&track.raw_data);
+
+        f.write_all(
+            format!(
+                "Cylinder {} Head {} Encoding {:?}\n",
+                track.cylinder, track.head, track.encoding
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+
+        track.densitymap.iter().for_each(|g| {
+            f.write_all(
+                format!(
+                    "For {} cells use density {}\n",
+                    g.number_of_cells, g.cell_size.0
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        });
+
+        f.write_all(format!("{:?}\n", track.raw_data.hex_conf(cfg)).as_bytes())
+            .unwrap();
+    }
+
+    let md5_hash = context.compute();
+    let md5_hashstr = format!("{:x}", md5_hash);
+    println!("MD5 for unit test: {}", md5_hashstr);
 }
 
 fn main() {
@@ -302,6 +179,11 @@ fn main() {
         }
     }
 
+    if let Some(debug_text_file) = cli.debug_text_file {
+        write_debug_text_file(&debug_text_file, image);
+        exit(0);
+    }
+
     // connect to USB
     let usb_handles = init_usb().unwrap_or_else(|| {
         println!("Unable to initialize the USB device!");
@@ -330,5 +212,77 @@ fn main() {
         write_precompensation_calibration(&usb_handles, image);
     } else {
         write_and_verify_image(&usb_handles, image);
+    }
+}
+
+fn md5_sum_of_file(path: &str) -> String {
+    let mut f = File::open(&path).expect("no file found");
+    let metadata = fs::metadata(&path).expect("unable to read metadata");
+
+    let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
+    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
+    assert_eq!(bytes_read, metadata.len() as usize);
+    let file_hash = md5::compute(&whole_file_buffer);
+    let file_hashstr = format!("{:x}", file_hash);
+    file_hashstr
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(
+        "../images/turrican.adf",
+        "6677ce6cea38dc66be40e9211576a149",
+        "b9167a41464460a0b4ebd8ddccd38f74"
+    )]
+    #[case(
+        "../images/Turrican.ipf",
+        "654e52bec1555ab3802c21f6ea269e64",
+        "d5b13e4fc464924321f92a5e76ac855a"
+    )]
+    #[case(
+        "../images/Turrican2.ipf",
+        "17abf9d8d5b2af451897f6db8c7f4868",
+        "d952bb8fa136be25906f8f0ebd2b9ef8"
+    )]
+    #[case(
+        "../images/Katakis_(CPX).d64",
+        "a1a64b89c44d9c778b2677b0027e015e",
+        "ace751801193ce5d8ff689c2e1eac003"
+    )]
+    #[case(
+        "../images/Katakis (Side 1).g64",
+        "53c47c575d057181a1911e6653229324",
+        "3b031710072ec07d39120c9d57f8ff50"
+    )]
+    fn known_image_regression_test(
+        #[case] filepath: &str,
+        #[case] expected_file_md5: &str,
+        #[case] expected_md5: &str,
+    ) {
+        // before we start, we must be sure that this is really the file we want to process
+        assert_eq!(md5_sum_of_file(filepath), expected_file_md5);
+
+        let mut image = parse_image(filepath);
+
+        let mut context = md5::Context::new();
+
+        for track in image.tracks.iter_mut() {
+            context.consume(u32::to_le_bytes(track.cylinder));
+            context.consume(u32::to_le_bytes(track.head));
+            track.densitymap.iter().for_each(|g| {
+                context.consume(i32::to_le_bytes(g.cell_size.0 as i32));
+                context.consume(usize::to_le_bytes(g.number_of_cells));
+            });
+            context.consume(&track.raw_data);
+        }
+
+        let md5_hash = context.compute();
+        let md5_hashstr = format!("{:x}", md5_hash);
+        println!("{}", md5_hashstr);
+        assert_eq!(md5_hashstr, expected_md5);
     }
 }

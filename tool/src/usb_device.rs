@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use rusb::{Context, Device, DeviceDescriptor, DeviceHandle, Direction, TransferType, UsbContext};
 
 fn open_usb_device<T: UsbContext>(
@@ -26,6 +28,19 @@ fn open_usb_device<T: UsbContext>(
     }
 
     None
+}
+
+pub fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
+    let (handle, endpoint_in, _endpoint_out) = handles;
+    let timeout = Duration::from_millis(10);
+    let mut in_buf = [0u8; 64];
+
+    loop {
+        let Ok(size) = handle.read_bulk(*endpoint_in, &mut in_buf, timeout) else {
+            return;
+        };
+        println!("Cleared residual USB buffer of size {}", size);
+    }
 }
 
 pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {

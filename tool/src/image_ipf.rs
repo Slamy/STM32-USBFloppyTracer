@@ -1,7 +1,6 @@
+use crate::md5_sum_of_file;
 use crate::rawtrack::{RawImage, RawTrack};
 use std::ffi::{c_void, CString};
-use std::fs::{self, File};
-use std::io::Read;
 use std::mem::MaybeUninit;
 use std::slice;
 use util::{DensityMapEntry, PulseDuration};
@@ -71,18 +70,6 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u32, head: u32) -> V
 
         _ => source.into(),
     }
-}
-
-fn md5_sum_of_file(path: &str) -> String {
-    let mut f = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
-
-    let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
-    let file_hash = md5::compute(&whole_file_buffer);
-    let file_hashstr = format!("{:x}", file_hash);
-    file_hashstr
 }
 
 pub fn parse_ipf_image(path: &str) -> RawImage {
@@ -173,7 +160,11 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
     unsafe {
         CAPSUnlockImage(id);
         CAPSRemImage(id);
-        CAPSExit();
+
+        // Usually we would free library memory here using CAPSExit();
+        // But the problem is that libcaps can't be used after doing so.
+        // especially for unit tests, this is a problem.
+        // CAPSExit();
     }
 
     RawImage {
