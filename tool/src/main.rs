@@ -19,7 +19,7 @@ use std::process::exit;
 use std::{ffi::OsStr, path::Path};
 use usb_commands::configure_device;
 use usb_device::{clear_buffers, init_usb};
-use util::DriveSelectState;
+use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
 use write_precompensation::{write_precompensation_calibration, WritePrecompDb};
 
 pub mod image_adf;
@@ -116,8 +116,8 @@ fn write_debug_text_file(path: &str, image: RawImage) {
         context.consume(u32::to_le_bytes(track.cylinder));
         context.consume(u32::to_le_bytes(track.head));
         track.densitymap.iter().for_each(|g| {
-            context.consume(i32::to_le_bytes(g.cell_size.0 as i32));
-            context.consume(usize::to_le_bytes(g.number_of_cells));
+            context.consume(i32::to_le_bytes(g.cell_size.0));
+            context.consume(usize::to_le_bytes(g.number_of_cellbytes));
         });
         context.consume(&track.raw_data);
 
@@ -130,11 +130,15 @@ fn write_debug_text_file(path: &str, image: RawImage) {
         )
         .unwrap();
 
+        if track.has_non_flux_reversal_area {
+            f.write_all("Has Non Flux Reversal Area\n".as_bytes())
+                .unwrap();
+        }
         track.densitymap.iter().for_each(|g| {
             f.write_all(
                 format!(
                     "For {} cells use density {}\n",
-                    g.number_of_cells, g.cell_size.0
+                    g.number_of_cellbytes, g.cell_size.0
                 )
                 .as_bytes(),
             )
@@ -158,8 +162,13 @@ fn main() {
     // before the make contact to the USB device, we shall read the image first
     // to be sure that it is writeable.
     let mut image = parse_image(&cli.filepath);
+    let rpm = match image.disk_type {
+        util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
+        util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
+    };
 
     for track in image.tracks.iter() {
+        track.assert_fits_into_rotation(rpm);
         track.check_writability();
     }
 
@@ -269,7 +278,12 @@ mod tests {
     #[case(
         "../images/Turrican II (1991)(Rainbow Arts).stx",
         "fb96a28ad633208a973e725ceb67c155",
-        "607fdb79439af4e7b191a0c2c848b61f"
+        "e142a9326a16ffb1c13aeaabb2856b20"
+    )]
+    #[case(
+        "../images/rodland.stx",
+        "80f6322934ca1c76bb04b5c4d6d25097",
+        "9dab1e0732200311eff31feb77bc1a87"
     )]
     fn known_image_regression_test(
         #[case] filepath: &str,
@@ -284,18 +298,25 @@ mod tests {
         let mut context = md5::Context::new();
 
         for track in image.tracks.iter_mut() {
+            let rpm = match image.disk_type {
+                util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
+                util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
+            };
+
+            track.assert_fits_into_rotation(rpm);
+            track.check_writability();
+
             context.consume(u32::to_le_bytes(track.cylinder));
             context.consume(u32::to_le_bytes(track.head));
             track.densitymap.iter().for_each(|g| {
-                context.consume(i32::to_le_bytes(g.cell_size.0 as i32));
-                context.consume(usize::to_le_bytes(g.number_of_cells));
+                context.consume(i32::to_le_bytes(g.cell_size.0));
+                context.consume(usize::to_le_bytes(g.number_of_cellbytes));
             });
             context.consume(&track.raw_data);
         }
 
         let md5_hash = context.compute();
         let md5_hashstr = format!("{:x}", md5_hash);
-        println!("{}", md5_hashstr);
         assert_eq!(md5_hashstr, expected_md5);
     }
 }

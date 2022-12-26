@@ -147,6 +147,22 @@ where
     encoder.feed_encoded8((crc16 & 0xff) as u8);
 }
 
+pub fn generate_iso_data_with_broken_crc<T>(sectordata: &[u8], encoder: &mut MfmEncoder<T>)
+where
+    T: FnMut(Bit),
+{
+    let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
+    crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
+    crc.update(&sectordata);
+    let crc16 = crc.get() + 0x1212; // Destroy CRC
+
+    sectordata
+        .iter()
+        .for_each(|byte| encoder.feed_encoded8(*byte));
+    encoder.feed_encoded8((crc16 >> 8) as u8);
+    encoder.feed_encoded8((crc16 & 0xff) as u8);
+}
+
 pub fn generate_iso_gap<T>(gap_size: usize, value: u8, encoder: &mut MfmEncoder<T>)
 where
     T: FnMut(Bit),
@@ -248,7 +264,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
             let trackbuf = generate_iso_track(cylinder, head, &geometry, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cells: trackbuf.len() as usize,
+                number_of_cellbytes: trackbuf.len() as usize,
                 cell_size: PulseDuration(cellsize),
             }];
 

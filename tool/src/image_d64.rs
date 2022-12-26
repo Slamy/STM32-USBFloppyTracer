@@ -123,7 +123,7 @@ pub fn parse_d64_image(path: &str) -> RawImage {
         }
 
         let densitymap = vec![DensityMapEntry {
-            number_of_cells: trackbuf.len() as usize,
+            number_of_cellbytes: trackbuf.len() as usize,
             cell_size: PulseDuration(settings.cellsize as i32),
         }];
 

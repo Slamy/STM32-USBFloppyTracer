@@ -5,7 +5,7 @@ use util::{
     bitstream::to_bit_stream,
     fluxpulse::FluxPulseGenerator,
     mfm::{MfmDecoder, MfmWord},
-    Bit, Density, DensityMapEntry, DiskType, Encoding, PulseDuration, RawCellData,
+    Bit, Density, DensityMap, DiskType, Encoding, PulseDuration, RawCellData, STM_TIMER_MHZ,
 };
 
 pub struct RawImage {
@@ -17,7 +17,7 @@ pub struct RawTrack {
     pub cylinder: u32,
     pub head: u32,
     pub raw_data: Vec<u8>,
-    pub densitymap: Vec<DensityMapEntry>,
+    pub densitymap: DensityMap,
     pub first_significane_offset: Option<usize>,
     pub encoding: Encoding,
     pub write_precompensation: u32,
@@ -29,7 +29,7 @@ impl RawTrack {
         cylinder: u32,
         head: u32,
         raw_data: Vec<u8>,
-        densitymap: Vec<DensityMapEntry>,
+        densitymap: DensityMap,
         encoding: Encoding,
     ) -> Self {
         RawTrack {
@@ -48,7 +48,7 @@ impl RawTrack {
         cylinder: u32,
         head: u32,
         raw_data: Vec<u8>,
-        densitymap: Vec<DensityMapEntry>,
+        densitymap: DensityMap,
         encoding: Encoding,
         has_non_flux_reversal_area: bool,
     ) -> Self {
@@ -124,11 +124,6 @@ impl RawTrack {
 
         let mut possible_offset = self.find_significance_through_divergence(&pulses, pulses[0]);
         if let Some(offset) = possible_offset {
-            println!(
-                "Divergence Significance for track {} {} at {}",
-                self.cylinder, self.head, offset
-            );
-
             self.first_significane_offset = possible_offset;
             return offset;
         }
@@ -137,11 +132,6 @@ impl RawTrack {
         possible_offset =
             self.find_significance_longer_pulses(&pulses, PulseDuration(168 * 2 + 30));
         if let Some(offset) = possible_offset {
-            println!(
-                "Longer pulses Significance for track {} {} at {}",
-                self.cylinder, self.head, offset
-            );
-
             self.first_significane_offset = possible_offset;
             return offset;
         }
@@ -168,6 +158,28 @@ impl RawTrack {
         write_prod_fpg.feed(Bit(true));
 
         result
+    }
+
+    pub fn calculate_duration_of_track(&self) -> f64 {
+        let mut accumulator = 0.0;
+
+        for entry in self.densitymap.iter() {
+            let seconds_per_cell: f64 = 1e-6_f64 * entry.cell_size.0 as f64 / STM_TIMER_MHZ;
+            accumulator += seconds_per_cell * entry.number_of_cellbytes as f64 * 8.0;
+        }
+
+        accumulator
+    }
+
+    pub fn assert_fits_into_rotation(&self, rpm: f64) {
+        let seconds_per_rotation = 60.0 / rpm;
+        let duration_of_track = self.calculate_duration_of_track();
+
+        assert!(
+            duration_of_track < seconds_per_rotation,
+            "Error: With {} seconds, the track will not fit into one single rotation of the disk!",
+            duration_of_track
+        );
     }
 
     pub fn check_writability(&self) {
@@ -242,15 +254,11 @@ impl RawTrack {
     }
 }
 
-pub const DRIVE_5_25_RPM: f64 = 361.0; // Normally 360 RPM would be correct. But the drive might be faster. Let's be safe here.
-pub const DRIVE_3_5_RPM: f64 = 300.2; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
-
 pub fn auto_cell_size(tracklen: u32, rpm: f64) -> f64 {
     let number_cells = tracklen * 8;
     let seconds_per_revolution = 60.0 / rpm;
     let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / number_cells as f64;
-    let stm_timer_mhz = 84.0;
-    let raw_timer_val = stm_timer_mhz * microseconds_per_cell;
+    let raw_timer_val = STM_TIMER_MHZ * microseconds_per_cell;
     raw_timer_val
 }
 

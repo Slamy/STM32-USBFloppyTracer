@@ -6,7 +6,8 @@ use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
 use util::{
-    Cylinder, Density, DensityMapEntry, DriveSelectState, Head, PulseDuration, RawCellData, Track,
+    Cylinder, Density, DensityMap, DensityMapEntry, DriveSelectState, Head, PulseDuration,
+    RawCellData, Track,
 };
 
 use crate::{interrupts, safeiprintln};
@@ -21,7 +22,7 @@ pub struct UsbHandler<'a> {
     usb_serial: SerialPort<'a, UsbBus<USB>>,
     usb_dev: UsbDevice<'a, UsbBus<USB>>,
     receive_buffer: Vec<u8>,
-    speeds: Vec<DensityMapEntry>,
+    speeds: DensityMap,
     remaining_blocks: u32,
     expected_size: usize,
     cylinder: u32,
@@ -100,7 +101,7 @@ impl UsbHandler<'_> {
                                     u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
                                 self.speeds.push(DensityMapEntry {
-                                    number_of_cells: (table_entry >> 9) as usize,
+                                    number_of_cellbytes: (table_entry >> 9) as usize,
                                     cell_size: (PulseDuration((table_entry & 0x1ff) as i32)),
                                 });
                             }
@@ -160,7 +161,7 @@ impl UsbHandler<'_> {
 
                         // Create the next receive buffer and take the current one
                         let mut recv_buffer = Vec::with_capacity(64);
-                        let mut speeds: Vec<DensityMapEntry> = Vec::with_capacity(64);
+                        let mut speeds: DensityMap = Vec::with_capacity(64);
 
                         core::mem::swap(&mut recv_buffer, &mut self.receive_buffer);
                         core::mem::swap(&mut speeds, &mut self.speeds);

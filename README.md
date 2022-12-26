@@ -19,6 +19,18 @@ This project is not created to encourage software piracy. It should be seen as a
     * .g64
     * .st
     * .stx (Experimental)
+* Supported protections
+    * Long Tracks
+    * Variable Density (CopyLock - Rob Northen Computing)
+    * Sector in Sector (currently requires patching of STX file)
+    * Non Flux Reversal Area (experimental)
+* Not yet supported protections
+    * Weak / Fuzzy bits
+    * Unformatted Area
+    * Specific to STX
+    	* In Sector Variable density
+    	* Hidden data in Gap
+    	* Data Tracks
 
 ## Compatibility and Differences to old project
 
@@ -38,7 +50,7 @@ There is no need to resolder the old setup.
 
 ## How to connect the STM32F4Discovery board to the disk drive
 
-![Pinout diagram of STM32F4Discovery board with floppy signals](doc/pinout.png)
+[Pinout diagram of STM32F4Discovery board with floppy signals](doc/pinout.png)
 
 ## How to build and flash the firmware
 
@@ -75,38 +87,22 @@ Assuming drive B is a 5.25" drive: Writing of C64 images
 
 For proper write precompensation, another [document](doc/write_precompensation.md) was added to explain the process.
 
-## Copy protected images which have been checked and are supported by this tool
+## List of images which have been tested with this project
 
-Quality can vary between raw images. Writing and verification of .g64 and .ipf images is not guaranteed.
-Writing of .stx images sometimes requires lots of patching as quality between images varies.
-Therefore I try to keep a list of images which are expected to work with this software.
+[Compatible and incompatible disk images](doc/compatibility_list.md)
 
-| Name                                             | MD5                              | Notes                                     | Copy Protection Method                 |
-|--------------------------------------------------|----------------------------------|-------------------------------------------|----------------------------------------|
-| Apidya (Germany) (En) (Disk 1).ipf               | 3adf2ffa5fbf740515576c10f46e1a67 |                                           | Long Tracks                            |
-| EnchantedLand.ipf                                | d907e262b6a3a72e0c690216bb9d0290 |                                           |                                        |
-| Gods_Disc1.ipf                                   | 7b2a11eda49fc6841834e792dab53997 |                                           |                                        |
-| Jim Power in Mutant Planet (Europe) (Disk 1).ipf | 78b2a03c31a30aadbcb269e75ae94853 |                                           |                                        |
-| Jumping Jack'Son (Europe).ipf                    | b4106a4ae184f5547d87be0601c71c9e |                                           |                                        |
-| Katakis (Side 1).g64                             | 53c47c575d057181a1911e6653229324 | Created with nibconv from .nib image      | Rainbow Arts (RADWAR)                  |
-| Katakis (Side 1).nib                             | 63fcfea043054882cfc31ae43fd0a5f9 | ./nibconv -r katakis_s1.nib katakis_s1.g64| Rainbow Arts (RADWAR)                  |
-| Rodland (Europe) (v1.32).ipf                     | 5bf77241b8ce88a323010e82bf18f3e0 |                                           | Rob Northen copylock?                  |
-| Turrican2.ipf                                    | 17abf9d8d5b2af451897f6db8c7f4868 | Might require write precompensation       | Long Tracks                            |
-| Turrican III - Payment Day (Germany).ipf         | e471c215d5c58719aeec1172b6e2b0e5 |                                           | Long Tracks                            |
-| Turrican.ipf                                     | 654e52bec1555ab3802c21f6ea269e64 |                                           | Long Tracks                            |
-| X-Out_1.ipf                                      | 1784c149245dfecde23223dc217604b0 |                                           | Long Tracks                            |
-| Z-Out (Europe).ipf                               | 0ff89947aede0817f443712d3689f503 |                                           | Long Tracks                            |
-| Turrican II (1991)(Rainbow Arts).stx             | fb96a28ad633208a973e725ceb67c155 |                                           | Long Tracks (worse than first game?)   |
-| Turrican (1990)(Rainbow Arts).stx                | 4865957cd83562547a722c95e9a5421a |                                           | Sector in Sector, No Flux Reversal Area|
+## Information sources
 
+This project wouldn't have been possible without the information I collected from various sources.
 
-## Copy protected images which have been known for NOT working with this tool
-
-This list doesn't mean that these images won't be supported in the future.
-It is mostly a TODO list for me and a hint for others who are struggling reconstructing this particular disk.
-
-
-| Name                                             | MD5                              | Notes                                   | Copy Protection Method|
-|--------------------------------------------------|----------------------------------|-----------------------------------------|-----------------------|
-|                                                  |                                  |                                         |                       |
-
+* [Infos about floppy signals](https://retrocmp.de/fdd/general/floppy-bus.htm)
+* [Documentation of Turrican copy protection of the Atari ST version](https://github.com/sarnau/AtariSTCopyProtections/blob/master/protection_turrican.md)
+* [Atari Floppy Disk Copy Protection - By Jean Louis-Guérin (DrCoolZic)](http://dmweb.free.fr/files/Atari-Copy-Protection-V1.4.pdf)
+* [Lots of Info about MFM Encoding and Floppy Drives](http://info-coach.fr/atari/hardware/FD-Hard.php)
+* [Technical Details of the ISO Floppy Format](http://info-coach.fr/atari/software/FD-Soft.php)
+* [Amiga Floppy Format](http://lclevy.free.fr/adflib/adf_info.html)
+* [G64 disk image documentation](http://www.unusedino.de/ec64/technical/formats/g64.html)
+* [Api Documentation for IPF reading using libcapsimage](http://www.softpres.org/_media/files:ipfdoc102a.zip?id=download&cache=cache)
+* [Pasti file format](http://info-coach.fr/atari/documents/_mydoc/Pasti-documentation.pdf)
+* [Inspiration for write precompensation handling](https://github.com/keirf/greaseweazle/blob/master/src/greaseweazle/track.py#L41)
+* [GCR Encoding of the 1541 floppy drive](http://www.baltissen.org/newhtm/1541c.htm)

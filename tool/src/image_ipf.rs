@@ -1,14 +1,17 @@
 use crate::md5_sum_of_file;
-use crate::rawtrack::{auto_cell_size, DRIVE_3_5_RPM};
+use crate::rawtrack::auto_cell_size;
 use crate::rawtrack::{RawImage, RawTrack};
 use std::ffi::{c_void, CString};
 use std::mem::MaybeUninit;
 use std::slice;
-use util::{DensityMapEntry, PulseDuration};
+use util::{DensityMap, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
+
+// Information source:
+// http://www.softpres.org/_media/files:ipfdoc102a.zip?id=download&cache=cache
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-fn sparse_timebuf(timebuf: &Vec<u32>) -> Vec<DensityMapEntry> {
+fn sparse_timebuf(timebuf: &Vec<u32>) -> DensityMap {
     let mut current_val = *timebuf.get(0).unwrap();
     let mut density_active_for: u32 = 0;
 
@@ -19,7 +22,7 @@ fn sparse_timebuf(timebuf: &Vec<u32>) -> Vec<DensityMapEntry> {
 
         if current_val != *density {
             sparse_timebuf.push(DensityMapEntry {
-                number_of_cells: density_active_for as usize,
+                number_of_cellbytes: density_active_for as usize,
                 cell_size: PulseDuration(current_val as i32),
             });
             current_val = *density;
@@ -29,7 +32,7 @@ fn sparse_timebuf(timebuf: &Vec<u32>) -> Vec<DensityMapEntry> {
 
     if density_active_for > 0 {
         sparse_timebuf.push(DensityMapEntry {
-            number_of_cells: density_active_for as usize,
+            number_of_cellbytes: density_active_for as usize,
             cell_size: PulseDuration(current_val as i32),
         });
     }
@@ -37,7 +40,10 @@ fn sparse_timebuf(timebuf: &Vec<u32>) -> Vec<DensityMapEntry> {
     // ensure that the lengths do match up!
     assert_eq!(
         timebuf.len(),
-        sparse_timebuf.iter().map(|f| (*f).number_of_cells).sum()
+        sparse_timebuf
+            .iter()
+            .map(|f| (*f).number_of_cellbytes)
+            .sum()
     );
 
     sparse_timebuf
@@ -131,7 +137,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                     );
                     */
                     densitymap = vec![DensityMapEntry {
-                        number_of_cells: trackbuf.len() as usize,
+                        number_of_cellbytes: trackbuf.len() as usize,
                         cell_size: PulseDuration(auto_cell_size as i32),
                     }];
                 }

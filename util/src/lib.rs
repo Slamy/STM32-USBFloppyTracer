@@ -51,15 +51,36 @@ pub struct RawCellPart<'a> {
     pub cells: &'a [u8],
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DensityMapEntry {
-    pub number_of_cells: usize,
+    pub number_of_cellbytes: usize,
     pub cell_size: PulseDuration,
 }
 
+pub const DRIVE_5_25_RPM: f64 = 361.0; // Normally 360 RPM would be correct. But the drive might be faster. Let's be safe here.
+pub const DRIVE_3_5_RPM: f64 = 300.2; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
+pub const STM_TIMER_MHZ: f64 = 84.0;
+pub const STM_TIMER_HZ: f64 = 84e6;
+
+pub type DensityMap = Vec<DensityMapEntry>;
+
+pub fn reduce_densitymap(densitymap: DensityMap) -> DensityMap {
+    let mut result: DensityMap = Vec::new();
+
+    for entry in densitymap {
+        if let Some(last) = result.last_mut() && entry.cell_size == last.cell_size {
+            // use the current one
+            last.number_of_cellbytes+=entry.number_of_cellbytes;
+        }
+        else{
+            result.push(entry);
+        }
+    }
+    result
+}
 #[self_referencing]
 pub struct RawCellData {
-    pub speeds: Vec<DensityMapEntry>,
+    pub speeds: DensityMap,
     pub cells: Vec<u8>,
 
     #[borrows(cells)]
@@ -68,7 +89,7 @@ pub struct RawCellData {
 }
 
 impl RawCellData {
-    pub fn construct(speeds: Vec<DensityMapEntry>, cells: Vec<u8>) -> RawCellData {
+    pub fn construct(speeds: DensityMap, cells: Vec<u8>) -> RawCellData {
         let speeds2 = speeds.clone();
 
         RawCellDataBuilder {
@@ -87,12 +108,15 @@ impl RawCellData {
                 for speed in speeds2.iter() {
                     let entry = RawCellPart {
                         cell_size: speed.cell_size,
-                        cells: &cells[offset..speed.number_of_cells + offset],
+                        cells: &cells[offset..speed.number_of_cellbytes + offset],
                     };
                     parts.push(entry);
 
-                    offset += speed.number_of_cells;
+                    offset += speed.number_of_cellbytes;
                 }
+
+                // just to be sure that the separate parts in sum are equal to the total number
+                assert_eq!(offset, cells.len());
 
                 parts
             },

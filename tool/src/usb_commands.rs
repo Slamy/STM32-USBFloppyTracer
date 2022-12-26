@@ -81,7 +81,7 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
         assert!(density_entry.cell_size.0 < 512);
 
         writer.next().unwrap().clone_from_slice(&u32::to_le_bytes(
-            ((density_entry.number_of_cells as u32) << 9) | density_entry.cell_size.0 as u32,
+            ((density_entry.number_of_cellbytes as u32) << 9) | density_entry.cell_size.0 as u32,
         ));
     }
 

@@ -1,8 +1,8 @@
-use crate::rawtrack::{auto_cell_size, RawImage, RawTrack, DRIVE_5_25_RPM};
+use crate::rawtrack::{auto_cell_size, RawImage, RawTrack};
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Read;
-use util::{DensityMapEntry, PulseDuration};
+use util::{DensityMapEntry, PulseDuration, DRIVE_5_25_RPM};
 
 const G64_SPEED_TABLE: [u32; 4] = [227, 245, 262, 280];
 
@@ -142,7 +142,7 @@ pub fn parse_g64_image(path: &str) -> RawImage {
             }
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cells: trackdata_copy.len() as usize,
+                number_of_cellbytes: trackdata_copy.len() as usize,
                 cell_size: PulseDuration(cellsize as i32),
             }];
 

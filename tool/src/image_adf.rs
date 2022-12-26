@@ -137,7 +137,7 @@ pub fn parse_adf_image(path: &str) -> RawImage {
             let trackbuf = generate_amiga_track(cylinder, head, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cells: trackbuf.len() as usize,
+                number_of_cellbytes: trackbuf.len() as usize,
                 cell_size: PulseDuration(168),
             }];
 
