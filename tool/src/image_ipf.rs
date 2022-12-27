@@ -130,12 +130,6 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                         );
                     });
                 } else {
-                    /*
-                    println!(
-                        "Auto Density Track {} {} - Auto cell size {} ",
-                        cylinder, head, auto_cell_size
-                    );
-                    */
                     densitymap = vec![DensityMapEntry {
                         number_of_cellbytes: trackbuf.len() as usize,
                         cell_size: PulseDuration(auto_cell_size as i32),
@@ -164,6 +158,23 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
         // especially for unit tests, this is a problem.
         // CAPSExit();
     }
+
+    let smallest_cell_size = tracks
+        .iter()
+        .map(|f| {
+            f.densitymap
+                .iter()
+                .map(|f| f.cell_size.0)
+                .reduce(|a, b| a.min(b))
+        })
+        .map(|f| f.unwrap())
+        .reduce(|a, b| a.min(b))
+        .unwrap();
+    let smallest_cell_size_usec = smallest_cell_size as f64 / 84.0;
+    println!(
+        "Smallest cell size of this image is {} / {:.2} usec",
+        smallest_cell_size, smallest_cell_size_usec
+    );
 
     RawImage {
         tracks,
