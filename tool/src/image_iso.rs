@@ -154,7 +154,7 @@ where
     let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
     crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
     crc.update(&sectordata);
-    let crc16 = crc.get() + 0x1212; // Destroy CRC
+    let crc16 = crc.get().overflowing_add(0x1212).0; // Destroy CRC
 
     sectordata
         .iter()

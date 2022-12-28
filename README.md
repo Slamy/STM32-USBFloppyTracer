@@ -18,7 +18,7 @@ This project is not created to encourage software piracy. It should be seen as a
     * .d64
     * .g64
     * .st
-    * .stx (Experimental)
+    * .stx (Highty experimental, only [patched images](doc/compatibility_list.md))
 * [Flippy Disk Index Simulation](doc/flippy_index.md)
 * Supported protections
     * Long Tracks
