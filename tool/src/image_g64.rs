@@ -30,25 +30,48 @@ fn patch_cell_size(file_hash_str: &str, cyl: u8) -> Option<u32> {
         // It also greatly depends on the selected RPM in auto_cell_size.
         // I think, In the end I will go for 246 here. It should be a sweet spot.
         ("53c47c575d057181a1911e6653229324", 70) => Some(246),
+        ("d2aa92ccf3531fc995e771be91a45241", 70) => Some(246),
+        ("406d29151e7001f6bfc7d95b7ade799d", 70) => Some(246),
+
+        // "Great Giana Sisters" Copy Protection Track
+        // Set timing like Katakis to be sure
+        ("c2334233136c523b9ec62beb8bea1e00", 70) => Some(246),
+
         _ => None,
     }
 }
 
 fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
     match (file_hash_str, cyl) {
-        // Various tracks of Katakis have garbage at the end. Remove residual flux data.
-        ("53c47c575d057181a1911e6653229324", 50) => source[0..source.len() - 40].into(),
-        ("53c47c575d057181a1911e6653229324", 52) => source[0..source.len() - 40].into(),
-        ("53c47c575d057181a1911e6653229324", 58) => source[0..source.len() - 40].into(),
-
         // Katakis Copy Protection Track is too long in this image.
         ("53c47c575d057181a1911e6653229324", 70) => {
-            let mut x: Vec<u8> = source[0..source.len() - 300].into();
-            x[510] = 0x55;
+            let x: Vec<u8> = source[0..source.len() - 300].into();
             x
         }
+        ("d2aa92ccf3531fc995e771be91a45241", 70) => {
+            let mut x: Vec<u8> = source[0..source.len() - 300].into();
+            x[0..0x22b].fill(0x55);
+            x[0x22b] = 0x57;
+            x[0x22c..0x2ac].fill(0xff);
+            x
+        }
+        ("406d29151e7001f6bfc7d95b7ade799d", 70) => {
+            let mut x: Vec<u8> = source[0..source.len() - 300].into();
+            x[0x22c..0x2ac].fill(0xff);
+            x
+        }
+
         // Unused track of the game with impossible to write data. Remove it.
         ("53c47c575d057181a1911e6653229324", 72) => Vec::new(),
+        ("d2aa92ccf3531fc995e771be91a45241", 72) => Vec::new(),
+        ("406d29151e7001f6bfc7d95b7ade799d", 72) => Vec::new(),
+
+        // "Great Giana Sisters" Copy Protection Track is too long in this image.
+        ("c2334233136c523b9ec62beb8bea1e00", 70) => {
+            let x: Vec<u8> = source[0..source.len() - 1000].into();
+            x
+        }
+        ("c2334233136c523b9ec62beb8bea1e00", 72) => Vec::new(),
 
         _ => source.into(),
     }

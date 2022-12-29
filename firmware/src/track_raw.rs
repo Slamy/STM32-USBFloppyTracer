@@ -148,7 +148,13 @@ impl RawTrackWriter {
         );
 
         write_prod_fpg.precompensation = write_precompensation.0 as u32;
-        write_prod_fpg.activate_non_flux_reversal_fixer = true;
+
+        if *track_data_to_write.borrow_has_non_flux_reversal_area() {
+            write_prod_fpg.enable_non_flux_reversal_generator = true;
+        } else {
+            write_prod_fpg.enable_weak_bit_generator = true;
+        }
+
         let mut track_data_iter = part.cells.iter();
 
         // prefill buffer with first data
@@ -244,6 +250,15 @@ impl RawTrackWriter {
             |f| flux_data_to_write_queue.borrow_mut().push_back(f),
             part.cell_size.0 as u32,
         );
+
+        if *track_data_to_write.borrow_has_non_flux_reversal_area() {
+            // It is important to have the non flux reversal generator disabled here.
+            // We will be reading an area of nothing after all!
+            flux_data_to_write_fpg.enable_non_flux_reversal_generator = false;
+        } else {
+            flux_data_to_write_fpg.enable_weak_bit_generator = true;
+        }
+
         let mut track_data_to_write_iter = part.cells.iter();
         while flux_data_to_write_queue.borrow().len()
             < first_significance_offset + COMPARE_WINDOW_SIZE

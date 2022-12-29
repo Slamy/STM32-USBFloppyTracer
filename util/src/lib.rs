@@ -82,19 +82,24 @@ pub fn reduce_densitymap(densitymap: DensityMap) -> DensityMap {
 pub struct RawCellData {
     pub speeds: DensityMap,
     pub cells: Vec<u8>,
-
+    pub has_non_flux_reversal_area: bool,
     #[borrows(cells)]
     #[covariant]
     pub parts: Vec<RawCellPart<'this>>,
 }
 
 impl RawCellData {
-    pub fn construct(speeds: DensityMap, cells: Vec<u8>) -> RawCellData {
+    pub fn construct(
+        speeds: DensityMap,
+        cells: Vec<u8>,
+        has_non_flux_reversal_area: bool,
+    ) -> RawCellData {
         let speeds2 = speeds.clone();
 
         RawCellDataBuilder {
             speeds,
             cells,
+            has_non_flux_reversal_area,
 
             // Note that the name of the field in the builder
             // is the name of the field in the struct + `_builder`

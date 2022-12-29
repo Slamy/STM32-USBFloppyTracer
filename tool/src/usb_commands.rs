@@ -61,11 +61,25 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
 
     let mut writer = command_buf.chunks_mut(4);
 
+    assert!(track.head <= 1);
+    assert!(track.cylinder <= 0xff);
+    assert!(track.write_precompensation <= 0xff);
+
+    let non_flux_reversal_mask = if track.has_non_flux_reversal_area {
+        0x200
+    } else {
+        0
+    };
+
     let header = vec![
         0x12340001,
         expected_size as u32,
         remaining_blocks as u32,
-        track.cylinder | (track.head << 8) | (track.write_precompensation << 16),
+        // Fields 00000000 PPPPPPPP 000000NH CCCCCCCC
+        track.cylinder
+            | (track.head << 8)
+            | non_flux_reversal_mask
+            | (track.write_precompensation << 16),
         track.first_significane_offset.unwrap() as u32,
         track.densitymap.len() as u32,
     ];

@@ -11,7 +11,7 @@ use image_d64::parse_d64_image;
 use image_iso::parse_iso_image;
 use image_stx::parse_stx_image;
 use pretty_hex::{HexConfig, PrettyHex};
-use rawtrack::RawImage;
+use rawtrack::{RawImage, TrackFilter};
 use rusb::{Context, DeviceHandle};
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
@@ -44,6 +44,9 @@ struct Args {
     /// Write raw track data to file. No USB communication
     #[arg(short)]
     debug_text_file: Option<String>,
+
+    #[arg(short)]
+    track_filter: Option<String>,
 
     /// Use drive A
     #[arg(short, default_value_t = false)]
@@ -167,6 +170,11 @@ fn main() {
         util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
     };
 
+    if let Some(filter) = cli.track_filter {
+        let filter = TrackFilter::new(&filter);
+        image.filter_tracks(filter);
+    }
+
     for track in image.tracks.iter() {
         track.assert_fits_into_rotation(rpm);
         track.check_writability();
@@ -268,7 +276,7 @@ mod tests {
     #[case(
         "../images/Katakis (Side 1).g64",
         "53c47c575d057181a1911e6653229324",
-        "3b031710072ec07d39120c9d57f8ff50"
+        "e01574784375c4972b799754b50eea53"
     )]
     #[case(
         "../images/Turrican (1990)(Rainbow Arts).stx",

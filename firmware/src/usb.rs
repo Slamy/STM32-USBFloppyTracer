@@ -27,6 +27,7 @@ pub struct UsbHandler<'a> {
     expected_size: usize,
     cylinder: u32,
     head: u32,
+    has_non_flux_reversal_area: bool,
     first_significane_offset: u32,
     write_precompensation: PulseDuration,
 }
@@ -45,6 +46,7 @@ impl UsbHandler<'_> {
             expected_size: 0,
             cylinder: 0,
             head: 0,
+            has_non_flux_reversal_area: false,
             first_significane_offset: 0,
             write_precompensation: PulseDuration(0),
         }
@@ -81,14 +83,15 @@ impl UsbHandler<'_> {
                             self.remaining_blocks =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
-                            // 00000000 PPPPPPPP HHHHHHHH CCCCCCCC
-                            let cylinder_and_head =
+                            // Fields 00000000 PPPPPPPP 000000NH CCCCCCCC
+                            let packed_configuration =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
-                            self.cylinder = cylinder_and_head & 0xff;
-                            self.head = (cylinder_and_head >> 8) & 0xff;
+                            self.cylinder = packed_configuration & 0xff;
+                            self.head = (packed_configuration >> 8) & 1;
+                            self.has_non_flux_reversal_area = (packed_configuration & 0x200) != 0;
                             self.write_precompensation =
-                                PulseDuration(((cylinder_and_head >> 16) & 0xff) as i32);
+                                PulseDuration(((packed_configuration >> 16) & 0xff) as i32);
 
                             self.first_significane_offset =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -171,7 +174,11 @@ impl UsbHandler<'_> {
                                 cylinder: Cylinder(self.cylinder as u8),
                                 head: Head(self.head as u8),
                             },
-                            RawCellData::construct(speeds, recv_buffer),
+                            RawCellData::construct(
+                                speeds,
+                                recv_buffer,
+                                self.has_non_flux_reversal_area,
+                            ),
                             self.first_significane_offset as usize,
                             self.write_precompensation,
                         );

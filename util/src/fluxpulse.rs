@@ -12,8 +12,9 @@ where
     pulse_accumulator: i32,
     pub precompensation: u32,
     shift_word: u32,
-    non_flux_reversal_state: bool,
-    pub activate_non_flux_reversal_fixer: bool,
+    special_generator_state: bool,
+    pub enable_non_flux_reversal_generator: bool,
+    pub enable_weak_bit_generator: bool,
 }
 
 // Write Precompensation is inspired by
@@ -31,42 +32,65 @@ where
             pulse_accumulator: cell_duration as i32 * -5,
             precompensation: 0,
             shift_word: 0,
-            non_flux_reversal_state: false,
-            activate_non_flux_reversal_fixer: false,
+            special_generator_state: false,
+            enable_non_flux_reversal_generator: false,
+            enable_weak_bit_generator: false,
         }
     }
 
     pub fn flush(&mut self) {
-        self.activate_non_flux_reversal_fixer = false;
-        self.feed(Bit(false));
-        self.feed(Bit(false));
-        self.feed(Bit(false));
-        self.feed(Bit(false));
-        self.feed(Bit(false));
+        self.enable_non_flux_reversal_generator = false;
+        self.enable_weak_bit_generator = false;
+
+        if (self.shift_word & 0b11111) != 0 {
+            self.feed(Bit(false));
+            self.feed(Bit(false));
+            self.feed(Bit(false));
+            self.feed(Bit(false));
+            self.feed(Bit(false));
+        }
     }
 
     pub fn feed(&mut self, cell: Bit) {
         self.pulse_accumulator += self.cell_duration as i32;
-
+        
         // collect incoming cells for later analysis.
         self.shift_word <<= 1;
         if cell.0 {
             self.shift_word |= 1
         }
 
-        if self.non_flux_reversal_state {
-            (self.sink)(PulseDuration(self.pulse_accumulator));
-            self.pulse_accumulator = 0;
-            if (self.shift_word & 0b00100_000) != 0 {
-                self.non_flux_reversal_state = false;
+        if self.special_generator_state {
+            if self.enable_weak_bit_generator {
+                let weak_cell_len = (self.cell_duration * 2 + self.cell_duration / 2) as i32;
+                if self.pulse_accumulator >= weak_cell_len {
+                    (self.sink)(PulseDuration(weak_cell_len));
+                    self.pulse_accumulator -= weak_cell_len;
+                }
+
+                // End the state in expectation of following data
+                if (self.shift_word & 0b00011_000) != 0 {
+                    self.special_generator_state = false;
+                }
+            } else if self.enable_non_flux_reversal_generator {
+                (self.sink)(PulseDuration(self.pulse_accumulator));
+                self.pulse_accumulator = 0;
+
+                // If we need to have a flux reversal here, make this reversal the one
+                // and change back to normal
+                if (self.shift_word & 0b00100_000) != 0 {
+                    self.special_generator_state = false;
+                }
             }
         }
         // with a window of 5 bitcells we can now perform write precompensation
         // we have 1 cell now, 2 cells in the past and 2 in the future.
         // use the center one as the current
         else if (self.shift_word & 0b00100_000) != 0 {
-            if self.shift_word & 0b011111 == 0 && self.activate_non_flux_reversal_fixer {
-                self.non_flux_reversal_state = true;
+            if self.shift_word & 0b011111 == 0
+                && (self.enable_weak_bit_generator | self.enable_non_flux_reversal_generator)
+            {
+                self.special_generator_state = true;
             }
 
             let next_pulse_accu = match (self.shift_word >> 3) & 0b11111 {
@@ -129,6 +153,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn weak_bits_area_test() {
+        let expected_actual_data_on_disk: Vec<u8> = vec![
+            0b01010100, //
+            0b10000000, 0b00000000, 0b00000001, //
+            0b01010001, //
+        ];
+
+        let mut normal_data = Vec::new();
+        let mut pulse_generator = FluxPulseGenerator::new(|f| normal_data.push(f.0), 100);
+        //pulse_generator.weak_bit_generator = true;
+        expected_actual_data_on_disk
+            .iter()
+            .for_each(|f| to_bit_stream(*f, |g| pulse_generator.feed(g)));
+        pulse_generator.flush();
+        let normal_data_duration: i32 = normal_data.iter().sum();
+
+        let mut weak_bit_data = Vec::new();
+        let mut pulse_generator = FluxPulseGenerator::new(|f| weak_bit_data.push(f.0), 100);
+        pulse_generator.enable_weak_bit_generator = true;
+        expected_actual_data_on_disk
+            .iter()
+            .for_each(|f| to_bit_stream(*f, |g| pulse_generator.feed(g)));
+        pulse_generator.flush();
+        let weak_bit_data_duration: i32 = weak_bit_data.iter().sum();
+
+        println!("{} {:?}", normal_data_duration, normal_data);
+        println!("{} {:?}", weak_bit_data_duration, weak_bit_data);
+
+        assert_eq!(normal_data, vec![200, 200, 200, 300, 2300, 200, 200, 400]);
+        assert_eq!(
+            weak_bit_data,
+            vec![200, 200, 200, 300, 250, 250, 250, 250, 250, 250, 250, 250, 300, 200, 200, 400]
+        );
+        assert_eq!(normal_data_duration, weak_bit_data_duration);
+
+    }
+
+    #[test]
     fn non_flux_reversal_area_test() {
         let expected_write_data: Vec<u8> = vec![
             0b01010101, //
@@ -155,7 +217,7 @@ mod tests {
             cell_duration: 100,
         };
         let mut pulse_generator = FluxPulseGenerator::new(|f| pulseparser.feed(f), 100);
-        pulse_generator.activate_non_flux_reversal_fixer = true;
+        pulse_generator.enable_non_flux_reversal_generator = true;
 
         expected_actual_data_on_disk
             .iter()
@@ -247,7 +309,7 @@ mod tests {
         let v1: Vec<u8> = vec![1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1];
         let mut result: Vec<PulseDuration> = Vec::new();
         let mut pulse_generator = FluxPulseGenerator::new(|f| result.push(f), 100);
-        pulse_generator.activate_non_flux_reversal_fixer = false;
+        pulse_generator.enable_non_flux_reversal_generator = false;
         v1.into_iter()
             .for_each(|pulse_duration| pulse_generator.feed(Bit(pulse_duration == 1)));
         pulse_generator.flush();

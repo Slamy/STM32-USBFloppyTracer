@@ -13,6 +13,27 @@ pub struct RawImage {
     pub disk_type: DiskType,
     pub tracks: Vec<RawTrack>,
 }
+
+impl RawImage {
+    pub fn filter_tracks(&mut self, filter: TrackFilter) {
+        self.tracks.retain(|f| {
+            (if let Some(cyl_start) = filter.cyl_start {
+                f.cylinder >= cyl_start
+            } else {
+                true
+            }) && (if let Some(cyl_end) = filter.cyl_end {
+                f.cylinder <= cyl_end
+            } else {
+                true
+            }) && (if let Some(head) = filter.head {
+                f.head <= head
+            } else {
+                true
+            })
+        });
+    }
+}
+
 pub struct RawTrack {
     pub cylinder: u32,
     pub head: u32,
@@ -144,7 +165,8 @@ impl RawTrack {
         let mut result = Vec::new();
 
         // TODO avoid clone
-        let cell_data = RawCellData::construct(self.densitymap.clone(), self.raw_data.clone());
+        let cell_data =
+            RawCellData::construct(self.densitymap.clone(), self.raw_data.clone(), false);
         let mut write_prod_fpg = FluxPulseGenerator::new(|f| result.push(f), 0);
 
         // start with a flux transition. avoids long sequences of zero
@@ -177,35 +199,34 @@ impl RawTrack {
 
         assert!(
             duration_of_track < seconds_per_rotation,
-            "Error: With {} seconds, the track will not fit into one single rotation of the disk!",
-            duration_of_track
+            "Error: With {} seconds, the track {} will not fit into one single rotation of the disk!",
+            duration_of_track, self.cylinder
         );
     }
 
     pub fn check_writability(&self) {
-        // TODO avoid the clone
-        let cell_data = RawCellData::construct(self.densitymap.clone(), self.raw_data.clone());
-
-        let maximum_allowed_cell_size = match self.encoding {
-            util::Encoding::GCR => self.densitymap[0].cell_size.0 * 5,
-            util::Encoding::MFM => self.densitymap[0].cell_size.0 * 8,
-        };
-
         let minimum_allowed_cell_size = match self.encoding {
-            util::Encoding::GCR => self.densitymap[0].cell_size.0 - 40,
+            util::Encoding::GCR => {
+                // Abort this for GCR as currently every GCR stream is writable
+                // If pauses are too long, they will be filled up with weak bits.
+                // Pauses can't be too short for GCR as we are working with full cells
+                return;
+            }
+            // With MFM this is a different story as we are working with half cells.
+            // The drive mechanism expects us to have at least one half cell pause
+            // between the flux reversals. If this rule is not applied here,
+            // the data we read bacl will be different.
             util::Encoding::MFM => self.densitymap[0].cell_size.0 + 40,
         };
 
+        // TODO avoid the clone
+        let cell_data =
+            RawCellData::construct(self.densitymap.clone(), self.raw_data.clone(), false);
         let track_offset = RefCell::new(0);
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
             |f| {
-                if f.0 > maximum_allowed_cell_size && self.has_non_flux_reversal_area {
-                    println!(
-                        "INFO: Track {} {} has a non flux reversal area...",
-                        self.cylinder, self.head
-                    );
-                } else if f.0 > maximum_allowed_cell_size || f.0 < minimum_allowed_cell_size {
+                if f.0 < minimum_allowed_cell_size {
                     let current_track_offset = *track_offset.borrow();
 
                     println!(
@@ -233,7 +254,7 @@ impl RawTrack {
                         println!("zero to end is {}", self.raw_data.len() - zero_found);
                     }
 
-                    panic!("Too long pause between flux change: {}", f.0)
+                    panic!("Too short pause between flux change: {}", f.0)
                 }
             },
             self.densitymap[0].cell_size.0 as u32,
@@ -339,4 +360,78 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
         sector_data.push(value);
     }
     println!("{:x?}", sector_data);
+}
+
+pub struct TrackFilter {
+    cyl_start: Option<u32>,
+    cyl_end: Option<u32>,
+    head: Option<u32>,
+}
+impl TrackFilter {
+    fn from_track_split(track_split: Vec<&str>, head: Option<u32>) -> Self {
+        if track_split.len() == 1 {
+            return TrackFilter {
+                cyl_start: track_split[0].parse().ok(),
+                cyl_end: track_split[0].parse().ok(),
+                head,
+            };
+        } else if track_split.len() == 2 {
+            return TrackFilter {
+                cyl_start: track_split[0].parse().ok(),
+                cyl_end: track_split[1].parse().ok(),
+                head,
+            };
+        }
+        panic!("Unexpected track filter parameter!")
+    }
+
+    pub fn new(param: &str) -> Self {
+        let head_split: Vec<_> = param.split(":").collect();
+        let track_split: Vec<&str> = head_split[0].split("-").collect();
+
+        if head_split.len() == 1 {
+            return Self::from_track_split(track_split, None);
+        } else if head_split.len() == 2 {
+            return Self::from_track_split(track_split, head_split[1].parse().ok());
+        }
+        panic!("Unexpected track filter parameter!")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn track_filter_test() {
+        let filter = TrackFilter::new("2-10");
+        assert_eq!(filter.cyl_end.unwrap(), 10);
+        assert_eq!(filter.cyl_start.unwrap(), 2);
+        assert!(filter.head.is_none());
+
+        let filter = TrackFilter::new("2-");
+        assert!(filter.cyl_end.is_none());
+        assert_eq!(filter.cyl_start.unwrap(), 2);
+        assert!(filter.head.is_none());
+
+        let filter = TrackFilter::new("-8");
+        assert!(filter.cyl_start.is_none());
+        assert_eq!(filter.cyl_end.unwrap(), 8);
+        assert!(filter.head.is_none());
+
+        let filter = TrackFilter::new("2-10:1");
+        assert_eq!(filter.cyl_end.unwrap(), 10);
+        assert_eq!(filter.cyl_start.unwrap(), 2);
+        assert_eq!(filter.head.unwrap(), 1);
+
+        let filter = TrackFilter::new("2-8:0");
+        assert_eq!(filter.cyl_end.unwrap(), 8);
+        assert_eq!(filter.cyl_start.unwrap(), 2);
+        assert_eq!(filter.head.unwrap(), 0);
+
+        let filter = TrackFilter::new("34");
+        assert_eq!(filter.cyl_end.unwrap(), 34);
+        assert_eq!(filter.cyl_start.unwrap(), 34);
+        assert!(filter.head.is_none());
+    }
 }

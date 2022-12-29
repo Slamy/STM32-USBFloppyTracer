@@ -11,6 +11,7 @@ target/
 !.vscode/launch.json
 !.vscode/tasks.json
 !.vscode/extensions.json
+
 /itm.txt
 *.ipf
 *.adf
@@ -19,3 +20,5 @@ target/
 *.st
 *.stx
 *.STX
+*.nib
+*.exe

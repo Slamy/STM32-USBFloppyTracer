@@ -38,10 +38,47 @@ Therefore I try to keep a list of images which are expected to work with this so
 
 ### C64
 
-| Name                                            | MD5                              | Notes                                     | Copy Protection Method                 |
-|-------------------------------------------------|----------------------------------|-------------------------------------------|----------------------------------------|
-| Katakis (Side 1).g64                            | 53c47c575d057181a1911e6653229324 | Created with nibconv from .nib image      | Rainbow Arts (RADWAR)                  |
-| Katakis (Side 1).nib                            | 63fcfea043054882cfc31ae43fd0a5f9 | ./nibconv -r katakis_s1.nib katakis_s1.g64| Rainbow Arts (RADWAR)                  |
+It seems that C64 images are rarely delivered as G64 file. Instead we usually get a NIB file which shall be converted first.
+
+#### NIB Files used for conversion
+
+| Name                                         | MD5                              | Notes                                       |
+|----------------------------------------------|----------------------------------|---------------------------------------------|
+| Katakis (Side 1).nib                         | 63fcfea043054882cfc31ae43fd0a5f9 | nibconv -r                                  |
+| turrican_2_s1\[rainbow_arts_1991](r2).nib    | 2940f1d9672061f5da2b9a10699526ee | Doesn't even work in emulator. Broken image?|
+| Turrican (Europe) (Side 1).nib               | 7a0ea1dd18294659d6df10eb1e441084 | Doesn't even work in emulator. Broken image?|
+| Turrican (Europe) (Alt 1) (Side 1).nib       | 8a5b1032ed0f02118e0b1dafeba74931 | nibconv -r                                  |
+| Turrican (Europe) (Alt 1) (Side 2).nib       | dbcd6884bc3123e3e791d4f14e8f3a3d | nibconv -r                                  |
+| x-out_s1\[rainbow_arts_1989](r2).nib         | c8bc58739ecd9c8dd8509cea784d01bb | nibconv -r                                  |
+
+
+#### G64 files resulting from NIB conversion
+
+| Name                                         | MD5                              | Notes                              | Copy Protection Method                   |
+|----------------------------------------------|----------------------------------|------------------------------------|------------------------------------------|
+| Katakis (Side 1).g64                         | 53c47c575d057181a1911e6653229324 | Green Level 2. Broken protection*  | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| x-out_s1\[rainbow_arts_1989](r2).g64         | 9785b035823c8f366a92d98bcf91544d |                                    | Weak Bits                                |
+| Turrican (Europe) (Alt 1) (Side 1).g64       | 79edb43946e428ba8000f21681a825dd |                                    |                                          |
+| Turrican (Europe) (Alt 1) (Side 2).g64       | fa58c3d902af0b6f5027fcb560fababd |                                    |                                          |
+
+#### G64 files premastered
+
+| Name                                       | MD5                              | Notes                             | Copy Protection Method                   |
+|--------------------------------------------|----------------------------------|-----------------------------------|------------------------------------------|
+| turrican_ii_s1\[rainbow_arts_1991](!).g64  | 43d928ad9c0791e6fa0b0e73a50757fe |                                   |                                          |
+| turrican_ii_s2\[rainbow_arts_1991](!).g64  | bd88b076129238f688f88757a6bfa4b5 |                                   |                                          |
+| turrican_s1\[rainbow_arts_1990](pal)(!).g64| 3904bf094cd24e1c32dcf0588aeb53ec |                                   |                                          |
+| turrican_s2\[rainbow_arts_1990](pal)(!).g64| 15e3c8ec7f40b85b8cd3de3fd5cc692d |                                   |                                          |
+| nebulus\[hewson_1987](pal).g64             | 0290df644e609e0ecb50ca7ae868c396 | The loader is creepy              |                                          |
+| x-out_s1\[rainbow_arts_1989](!).g64        | 6780f6fab0e8e69a804921bcc8834382 |                                   |                                          |
+| cybernoid_ii\[hewson_1988].g64             | 01585840dbe6962361eabdb8b2d34025 |                                   |                                          |
+| katakis_s1\[rainbow_arts_1988](r1)(!).g64  | 406d29151e7001f6bfc7d95b7ade799d | Green Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| katakis_s1\[rainbow_arts_1988](r1)(alt).g64| d2aa92ccf3531fc995e771be91a45241 | White Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| thrust\[firebird_1986](pal).g64            | 53f9553277c4c526c509b88af56a837f |                                   |                                          |
+| Great_Giana_Sisters_The.g64                | c2334233136c523b9ec62beb8bea1e00 | Broken protection*                | Rainbow Arts (RADWAR) - Timing Exact Sync|
+
+
+*Some disks have a broken protection track. These are patched by the tool if found.
 
 ## Not yet working with this tool
 
@@ -49,9 +86,10 @@ This list doesn't mean that these images won't be supported in the future.
 It is mostly a TODO list for me and a hint for others who are struggling reconstructing this particular disk.
 
 
-| Name                                             | MD5                              | Notes                                   | Copy Protection Method                                 |
-|--------------------------------------------------|----------------------------------|-----------------------------------------|--------------------------------------------------------|
-| Batman (2 disk) A.stx                            | a35e2a6c32dd77fefb76cc81d83db56d | Unsupported fdc flags                   | Fuzzy Bits? Macrodos/Speedlock (SBV). Data Tracks (DTT)|
-| enchanted_land.stx                               | 823066c507d10d6f69109788660eadc7 | Doesn't load                            | Data in Gap? (HDG)                                     |
-| nebulus.stx                                      | c94ccfcccfa1fba31cc913ad7b8dcc2f | Unsupported fdc flags                   | Fuzzy Bits? Macrodos/Speedlock (SBV)                   |
+| Name                                       | MD5                             | Notes                                   | Copy Protection Method                                 |
+|--------------------------------------------|---------------------------------|-----------------------------------------|--------------------------------------------------------|
+| Batman (2 disk) A.stx                      | a35e2a6c32dd77fefb76cc81d83db56d| Unsupported fdc flags                   | Fuzzy Bits? Macrodos/Speedlock (SBV). Data Tracks (DTT)|
+| enchanted_land.stx                         | 823066c507d10d6f69109788660eadc7| Doesn't load                            | Data in Gap? (HDG)                                     |
+| nebulus.stx                                | c94ccfcccfa1fba31cc913ad7b8dcc2f| Unsupported fdc flags                   | Fuzzy Bits? Macrodos/Speedlock (SBV)                   |
+|                                            |                                 |                                         |                                                        |
 
