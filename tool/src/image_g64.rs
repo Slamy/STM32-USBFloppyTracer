@@ -61,7 +61,7 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
             x
         }
 
-        // Unused track of the game with impossible to write data. Remove it.
+        // Unused track of Katakis with impossible to write data. Remove it.
         ("53c47c575d057181a1911e6653229324", 72) => Vec::new(),
         ("d2aa92ccf3531fc995e771be91a45241", 72) => Vec::new(),
         ("406d29151e7001f6bfc7d95b7ade799d", 72) => Vec::new(),
@@ -129,6 +129,12 @@ pub fn parse_g64_image(path: &str) -> RawImage {
 
                 if trackdata.iter().all(|f| *f == 0) {
                     println!("Track {} is all zero? Remove it...", track_index,);
+                    continue;
+                }
+
+                let bytecells_with_ff = trackdata.iter().filter(|f| **f == 0xff).count();
+                if bytecells_with_ff >= trackdata.len() - 2 {
+                    println!("Track {} is all 0xff? Remove it...", track_index,);
                     continue;
                 }
 

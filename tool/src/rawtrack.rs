@@ -158,7 +158,10 @@ impl RawTrack {
         }
 
         // TODO this is ugly too
-        panic!();
+        panic!(
+            "Unable to find an offset of significance for the verification of track {}!",
+            self.cylinder
+        );
     }
 
     fn convert_to_pulses(&self) -> Vec<PulseDuration> {

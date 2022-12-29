@@ -45,11 +45,11 @@ It seems that C64 images are rarely delivered as G64 file. Instead we usually ge
 | Name                                         | MD5                              | Notes                                       |
 |----------------------------------------------|----------------------------------|---------------------------------------------|
 | Katakis (Side 1).nib                         | 63fcfea043054882cfc31ae43fd0a5f9 | nibconv -r                                  |
-| turrican_2_s1\[rainbow_arts_1991](r2).nib    | 2940f1d9672061f5da2b9a10699526ee | Doesn't even work in emulator. Broken image?|
+| turrican_2_s1\[rainbow_arts_1991\]\(r2).nib  | 2940f1d9672061f5da2b9a10699526ee | Doesn't even work in emulator. Broken image?|
 | Turrican (Europe) (Side 1).nib               | 7a0ea1dd18294659d6df10eb1e441084 | Doesn't even work in emulator. Broken image?|
 | Turrican (Europe) (Alt 1) (Side 1).nib       | 8a5b1032ed0f02118e0b1dafeba74931 | nibconv -r                                  |
 | Turrican (Europe) (Alt 1) (Side 2).nib       | dbcd6884bc3123e3e791d4f14e8f3a3d | nibconv -r                                  |
-| x-out_s1\[rainbow_arts_1989](r2).nib         | c8bc58739ecd9c8dd8509cea784d01bb | nibconv -r                                  |
+| x-out_s1\[rainbow_arts_1989\]\(r2).nib       | c8bc58739ecd9c8dd8509cea784d01bb | nibconv -r                                  |
 
 
 #### G64 files resulting from NIB conversion
@@ -57,25 +57,35 @@ It seems that C64 images are rarely delivered as G64 file. Instead we usually ge
 | Name                                         | MD5                              | Notes                              | Copy Protection Method                   |
 |----------------------------------------------|----------------------------------|------------------------------------|------------------------------------------|
 | Katakis (Side 1).g64                         | 53c47c575d057181a1911e6653229324 | Green Level 2. Broken protection*  | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| x-out_s1\[rainbow_arts_1989](r2).g64         | 9785b035823c8f366a92d98bcf91544d |                                    | Weak Bits                                |
+| x-out_s1\[rainbow_arts_1989\]\(r2).g64       | 9785b035823c8f366a92d98bcf91544d |                                    | Weak Bits                                |
 | Turrican (Europe) (Alt 1) (Side 1).g64       | 79edb43946e428ba8000f21681a825dd |                                    |                                          |
 | Turrican (Europe) (Alt 1) (Side 2).g64       | fa58c3d902af0b6f5027fcb560fababd |                                    |                                          |
 
 #### G64 files premastered
 
-| Name                                       | MD5                              | Notes                             | Copy Protection Method                   |
-|--------------------------------------------|----------------------------------|-----------------------------------|------------------------------------------|
-| turrican_ii_s1\[rainbow_arts_1991](!).g64  | 43d928ad9c0791e6fa0b0e73a50757fe |                                   |                                          |
-| turrican_ii_s2\[rainbow_arts_1991](!).g64  | bd88b076129238f688f88757a6bfa4b5 |                                   |                                          |
-| turrican_s1\[rainbow_arts_1990](pal)(!).g64| 3904bf094cd24e1c32dcf0588aeb53ec |                                   |                                          |
-| turrican_s2\[rainbow_arts_1990](pal)(!).g64| 15e3c8ec7f40b85b8cd3de3fd5cc692d |                                   |                                          |
-| nebulus\[hewson_1987](pal).g64             | 0290df644e609e0ecb50ca7ae868c396 | The loader is creepy              |                                          |
-| x-out_s1\[rainbow_arts_1989](!).g64        | 6780f6fab0e8e69a804921bcc8834382 |                                   |                                          |
-| cybernoid_ii\[hewson_1988].g64             | 01585840dbe6962361eabdb8b2d34025 |                                   |                                          |
-| katakis_s1\[rainbow_arts_1988](r1)(!).g64  | 406d29151e7001f6bfc7d95b7ade799d | Green Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| katakis_s1\[rainbow_arts_1988](r1)(alt).g64| d2aa92ccf3531fc995e771be91a45241 | White Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| thrust\[firebird_1986](pal).g64            | 53f9553277c4c526c509b88af56a837f |                                   |                                          |
-| Great_Giana_Sisters_The.g64                | c2334233136c523b9ec62beb8bea1e00 | Broken protection*                | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| Name                                                   | MD5                              | Notes                             | Copy Protection Method                   |
+|--------------------------------------------------------|----------------------------------|-----------------------------------|------------------------------------------|
+| turrican_ii_s1\[rainbow_arts_1991\]\(!).g64            | 43d928ad9c0791e6fa0b0e73a50757fe |                                   |                                          |
+| turrican_ii_s2\[rainbow_arts_1991\]\(!).g64            | bd88b076129238f688f88757a6bfa4b5 |                                   |                                          |
+| turrican_s1\[rainbow_arts_1990\]\(pal)\(!).g64         | 3904bf094cd24e1c32dcf0588aeb53ec |                                   |                                          |
+| turrican_s2\[rainbow_arts_1990\]\(pal)\(!).g64         | 15e3c8ec7f40b85b8cd3de3fd5cc692d |                                   |                                          |
+| nebulus\[hewson_1987\]\(pal).g64                       | 0290df644e609e0ecb50ca7ae868c396 | The loader is weird.              |                                          |
+| x-out_s1\[rainbow_arts_1989\]\(!).g64                  | 6780f6fab0e8e69a804921bcc8834382 |                                   |                                          |
+| cybernoid_ii\[hewson_1988\].g64                        | 01585840dbe6962361eabdb8b2d34025 |                                   |                                          |
+| katakis_s1\[rainbow_arts_1988\]\(r1)(!).g64            | 406d29151e7001f6bfc7d95b7ade799d | Green Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| katakis_s1\[rainbow_arts_1988\]\(r1)(alt).g64          | d2aa92ccf3531fc995e771be91a45241 | White Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| thrust\[firebird_1986\]\(pal).g64                      | 53f9553277c4c526c509b88af56a837f |                                   |                                          |
+| Great_Giana_Sisters_The.g64                            | c2334233136c523b9ec62beb8bea1e00 | Broken protection*                | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| mr_robot_factory\[datamost_1983\].g64                  | 2ead4cc911d984120659c876e8d2ea1d | Very slow loading                 |                                          |
+| mayhem_in_monsterland_s1\[apex_1993\]\(pal).g64        | a3c10eb5c590ba8bd5c9bb8e0a08226c | Additional code sheet required.   |                                          |
+| mayhem_in_monsterland_s2\[apex_1993\]\(pal)(!).g64     | 321194b397e8f6d7ae8d60841dc5d9ac |                                   |                                          |
+| impossible_mission\[epyx_1984\]\(pal\)(!).g64          | 5d97d83a7caf5ad2ddbace6c2504b436 | Bumps head while loading!         |                                          |
+| r-type_s1\[electric_dreams_1988]\(pal\)(!).g64         | db2a2d351f5701746c7af0806c8de389 | Bumps head while loading!         |                                          |
+| r-type_s2\[electric_dreams_1988]\(pal\)(!).g64         | 259f2c7cd4bfefe32e6ca1b66df6a983 |                                   |                                          |
+| lode_runner\[br0derbund_1983\]\(00)(black_label)(!).g64| f10fb40754b73a57c2e38957215e76ce | Bumps head while loading!         |                                          |
+| boulder_dash\[first_star_1984\]\(pal)(!).g64           | b8350b9d1cc76a33e99218b446695a97 |                                   |                                          |
+| armalyte_s1\[thalamus_1988\]\(pal)(!).g64              | 8dd4bfe82f254b2dbf5fd4998e406e12 |                                   |                                          |
+| armalyte_s2\[thalamus_1988\]\(pal)(!).g64              | 725858316042378290db0c41842f94e9 |                                   |                                          |
 
 
 *Some disks have a broken protection track. These are patched by the tool if found.
@@ -92,4 +102,15 @@ It is mostly a TODO list for me and a hint for others who are struggling reconst
 | enchanted_land.stx                         | 823066c507d10d6f69109788660eadc7| Doesn't load                            | Data in Gap? (HDG)                                     |
 | nebulus.stx                                | c94ccfcccfa1fba31cc913ad7b8dcc2f| Unsupported fdc flags                   | Fuzzy Bits? Macrodos/Speedlock (SBV)                   |
 |                                            |                                 |                                         |                                                        |
+
+
+## Images which refuse to work
+
+These images seem to have some sort of problem.
+Help or information about these would be required to get these to work.
+It is possible that the image itself is broken.
+
+| Name                                       | MD5                              | Notes                                                                 | Copy Protection Method   |
+|--------------------------------------------|----------------------------------|-----------------------------------------------------------------------|--------------------------|
+| rodland\[sales_curve_1989\]\(pal).g64      | 18b0f9cd2f223af76afefed2365bacb3 | Loads very slowly. Crashes on first level even in emulator. Don't use.|                          |
 

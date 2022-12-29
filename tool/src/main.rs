@@ -175,6 +175,11 @@ fn main() {
         image.filter_tracks(filter);
     }
 
+    if let Some(debug_text_file) = cli.debug_text_file {
+        write_debug_text_file(&debug_text_file, image);
+        exit(0);
+    }
+
     for track in image.tracks.iter() {
         track.assert_fits_into_rotation(rpm);
         track.check_writability();
@@ -197,11 +202,6 @@ fn main() {
                 0
             });
         }
-    }
-
-    if let Some(debug_text_file) = cli.debug_text_file {
-        write_debug_text_file(&debug_text_file, image);
-        exit(0);
     }
 
     // connect to USB
