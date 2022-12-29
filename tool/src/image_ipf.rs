@@ -1,9 +1,11 @@
 use crate::md5_sum_of_file;
 use crate::rawtrack::auto_cell_size;
 use crate::rawtrack::{RawImage, RawTrack};
+use std::cell::Cell;
 use std::ffi::{c_void, CString};
-use std::mem::MaybeUninit;
+use std::mem::{self, MaybeUninit};
 use std::slice;
+use std::sync::Mutex;
 use util::{DensityMap, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
 
 // Information source:
@@ -74,6 +76,13 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
 
     let file_hashstr = md5_sum_of_file(path);
     let mut tracks: Vec<RawTrack> = Vec::new();
+
+    // The CAPS libary is not thread safe!
+    // In unit tests this can become an issue as this code is called multiple
+    // times. We need a mutex so the code between CAPSInit()
+    // and CAPSExit() is not processed in multiple threads.
+    static caps_mutex: Mutex<Cell<()>> = Mutex::new(Cell::new(()));
+    let caps_mutex_guard = caps_mutex.lock();
 
     assert!(unsafe { CAPSInit() == 0 });
 
@@ -152,12 +161,11 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
     unsafe {
         CAPSUnlockImage(id);
         CAPSRemImage(id);
-
-        // Usually we would free library memory here using CAPSExit();
-        // But the problem is that libcaps can't be used after doing so.
-        // especially for unit tests, this is a problem.
-        // CAPSExit();
+        CAPSExit();
     }
+
+    // It is now safe to drop the guard as we have finished using the CAPS library
+    mem::drop(caps_mutex_guard);
 
     let smallest_cell_size = tracks
         .iter()
