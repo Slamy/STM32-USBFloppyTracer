@@ -9,11 +9,12 @@ pub fn configure_device(
     handles: &(DeviceHandle<Context>, u8, u8),
     select_drive: DriveSelectState,
     density: Density,
+    index_sim_frequency: u32,
 ) {
     let (handle, _endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
-    let mut command_buf = [0u8; 8];
+    let mut command_buf = [0u8; 3 * 4];
 
     let mut writer = command_buf.chunks_mut(4);
 
@@ -36,6 +37,11 @@ pub fn configure_device(
         .next()
         .unwrap()
         .clone_from_slice(&u32::to_le_bytes(settings));
+
+    writer
+        .next()
+        .unwrap()
+        .clone_from_slice(&u32::to_le_bytes(index_sim_frequency));
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
@@ -112,6 +118,7 @@ pub fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_tr
     let (handle, endpoint_in, _endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
+    // TODO copy pasta
     loop {
         let mut in_buf = [0u8; 64];
 
@@ -125,7 +132,7 @@ pub fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_tr
         match response_split[0] {
             "WrittenAndVerified" => {
                 println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
+                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
                     response_split[1],
                     response_split[2],
                     response_split[3],
@@ -139,7 +146,7 @@ pub fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_tr
             }
             "GotCmd" => {} // Ignore
             "Fail" => panic!(
-                "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
+                "Failed writing cylinder {} head {} - writes:{}, reads:{}",
                 response_split[1], response_split[2], response_split[3], response_split[4],
             ),
             _ => panic!("Unexpected answer from device: {}", response_text),
@@ -167,7 +174,7 @@ pub fn wait_for_answer(
         match response_split[0] {
             "WrittenAndVerified" => {
                 println!(
-                    "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
+                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
                     response_split[1],
                     response_split[2],
                     response_split[3],

@@ -22,3 +22,5 @@ target/
 *.STX
 *.nib
 *.exe
+*.profraw
+

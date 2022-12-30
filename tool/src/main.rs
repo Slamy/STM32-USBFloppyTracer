@@ -45,6 +45,7 @@ struct Args {
     #[arg(short)]
     debug_text_file: Option<String>,
 
+    /// Only write some tracks: eg. range 2-4 or single track 8
     #[arg(short)]
     track_filter: Option<String>,
 
@@ -60,9 +61,9 @@ struct Args {
     #[arg(short, default_value_t = false)]
     wprecomp_calib: bool,
 
-    /// Simulate index signal for flipped 5.25" disks
-    #[arg(short, long, default_value_t = false)]
-    flippy: bool,
+    /// Simulate index signal for flipped 5.25" disks with provided timing offset
+    #[arg(short, long)]
+    flippy: Option<u32>,
 }
 
 fn parse_image(path: &str) -> RawImage {
@@ -226,7 +227,18 @@ fn main() {
         panic!("No drive selected! Please specifiy with -a or -b");
     };
 
-    configure_device(&usb_handles, select_drive, image.density);
+    let index_sim_frequency = if let Some(flippy_param) = cli.flippy {
+        (14 * 1000 - flippy_param) * 1000
+    } else {
+        0
+    };
+
+    configure_device(
+        &usb_handles,
+        select_drive,
+        image.density,
+        index_sim_frequency,
+    );
 
     if cli.wprecomp_calib {
         write_precompensation_calibration(&usb_handles, image);
@@ -276,7 +288,7 @@ mod tests {
     #[case(
         "../images/Katakis (Side 1).g64",
         "53c47c575d057181a1911e6653229324",
-        "e01574784375c4972b799754b50eea53"
+        "f0d02066cb590698bcf5b34573df61f7"
     )]
     #[case(
         "../images/Turrican (1990)(Rainbow Arts).stx",

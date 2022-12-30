@@ -211,11 +211,11 @@ impl RawTrackWriter {
         // Size of sliding window, containing the significant data we use, trying
         // to match the data we read back against the groundtruth data we thought
         // to have written before
-        const COMPARE_WINDOW_SIZE: usize = 12;
+        const COMPARE_WINDOW_SIZE: usize = 20;
 
         // We record this amount of pulses to slide the COMPARE_WINDOW on
         // to perfom cross correlation
-        const READ_DATA_WINDOW_SIZE: usize = 30;
+        const READ_DATA_WINDOW_SIZE: usize = 90;
 
         // keep the motor spinning
         cortex_m::interrupt::free(|cs| {
@@ -336,10 +336,10 @@ impl RawTrackWriter {
         }
 
         let mut equal = false; // set to true if correlation is found
-
+        let mut match_after_pulses = 0;
         // now move the reference significant window over the already read data and compare it.
         // there should be one position where it matches!
-        for _ in 0..READ_DATA_WINDOW_SIZE {
+        for read_window_index in 0..READ_DATA_WINDOW_SIZE {
             if read_mfm_flux_data_queue.len() < COMPARE_WINDOW_SIZE {
                 safeiprintln!("Unable to cross correlate!");
 
@@ -357,6 +357,7 @@ impl RawTrackWriter {
                 .all(|(x, y)| y.similar(x, similarity_treshold));
 
             if equal {
+                match_after_pulses = read_window_index;
                 break;
             }
 
@@ -439,10 +440,11 @@ impl RawTrackWriter {
         });
 
         safeiprintln!(
-            "Verified {} pulses, Max duration error {} / {}",
+            "Verified {} pulses, Max error {} / {}, window match offset {}",
             successful_compares,
             maximum_diff,
-            similarity_treshold
+            similarity_treshold,
+            match_after_pulses
         );
         Ok(PulseDuration(maximum_diff as i32))
     }

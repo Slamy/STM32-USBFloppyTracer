@@ -9,8 +9,8 @@ This project is not created to encourage software piracy. It should be seen as a
 ## Features
 
 * Writes and verifies raw tracks
-* Write Precompensation
-    * Configuration for single tracks possible
+* [Write Precompensation](doc/write_precompensation.md)
+    * Configuration with cylinder precision
     * Semi-automatic calibration process
 * Supported disk image formats
     * .adf
@@ -19,13 +19,14 @@ This project is not created to encourage software piracy. It should be seen as a
     * .g64
     * .st
     * .stx (Experimental)
+* [Flippy Disk Index Simulation](doc/flippy_index.md)
 * Supported protections
     * Long Tracks
     * Variable Density (CopyLock - Rob Northen Computing)
+    * Weak / Fuzzy bits (Still experimental)
     * Sector in Sector (currently requires patching of STX file)
     * Non Flux Reversal Area (experimental)
 * Not yet supported protections
-    * Weak / Fuzzy bits
     * Unformatted Area
     * Specific to STX
     	* In Sector Variable density
@@ -46,7 +47,6 @@ There is no need to resolder the old setup.
 ### Features still missing from the old project:
 
 * Reading of disk images
-* Flippy disks (Index hole simulation)
 
 ## How to connect the STM32F4Discovery board to the disk drive
 

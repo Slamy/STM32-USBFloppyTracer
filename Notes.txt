@@ -60,3 +60,12 @@ Lots of MFM Cells like 0xAA will not do here. The window must at least contain v
 
 As soon as a match is found, full verification can be performed without relying on faulty checksums (Amiga) or unknown sync markers (copy protections).
 It would be cool if this whole process can be completed by using only 2 revolutions per track. But the CPU must hurry for this.
+
+
+
+Unit Testing with code coverage:
+https://blog.rng0.io/how-to-do-code-coverage-in-rust
+
+CARGO_INCREMENTAL=0 RUSTFLAGS='-Cinstrument-coverage' LLVM_PROFILE_FILE='cargo-test-%p-%m.profraw' cargo test
+grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage_html
+firefox target/coverage_html/index.html

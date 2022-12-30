@@ -10,7 +10,7 @@ use util::{
     RawCellData, Track,
 };
 
-use crate::{interrupts, safeiprintln};
+use crate::{interrupts, safeiprintln, INDEX_SIM};
 
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
@@ -113,6 +113,8 @@ impl UsbHandler<'_> {
                         0x12340002 => {
                             let settings =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
+                            let index_sim_frequency =
+                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
                             let selected_drive = if settings & 1 != 0 {
                                 DriveSelectState::B
@@ -126,6 +128,13 @@ impl UsbHandler<'_> {
                                 Density::SingleDouble
                             };
                             cortex_m::interrupt::free(|cs| {
+                                INDEX_SIM
+                                    .borrow(cs)
+                                    .borrow_mut()
+                                    .as_ref()
+                                    .unwrap()
+                                    .configure(index_sim_frequency);
+
                                 let mut floppy_control_borrow =
                                     interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
                                 let floppy_control = floppy_control_borrow.as_mut().unwrap();

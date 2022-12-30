@@ -34,6 +34,7 @@ pub fn write_precompensation_calibration(
     let process_answer = |results2: &mut HashMap<usize, Vec<usize>>, last: bool| {
         let timeout = Duration::from_secs(10);
 
+        // TODO copy pasta
         loop {
             let mut in_buf = [0u8; 64];
 
@@ -48,7 +49,7 @@ pub fn write_precompensation_calibration(
             match response_split[0] {
                 "WrittenAndVerified" => {
                     println!(
-                        "Verified write of track {} head {} - num_writes:{}, num_reads:{}, max_err:{} write_precomp:{}",
+                        "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
                         response_split[1],
                         response_split[2],
                         response_split[3],

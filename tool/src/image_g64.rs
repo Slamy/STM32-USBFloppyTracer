@@ -45,18 +45,18 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
     match (file_hash_str, cyl) {
         // Katakis Copy Protection Track is too long in this image.
         ("53c47c575d057181a1911e6653229324", 70) => {
-            let x: Vec<u8> = source[0..source.len() - 300].into();
+            let x: Vec<u8> = source[0..source.len() - 150].into();
             x
         }
         ("d2aa92ccf3531fc995e771be91a45241", 70) => {
-            let mut x: Vec<u8> = source[0..source.len() - 300].into();
+            let mut x: Vec<u8> = source[0..source.len() - 48].into();
             x[0..0x22b].fill(0x55);
             x[0x22b] = 0x57;
             x[0x22c..0x2ac].fill(0xff);
             x
         }
         ("406d29151e7001f6bfc7d95b7ade799d", 70) => {
-            let mut x: Vec<u8> = source[0..source.len() - 300].into();
+            let mut x: Vec<u8> = source[0..source.len() - 90].into();
             x[0x22c..0x2ac].fill(0xff);
             x
         }

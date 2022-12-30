@@ -6,6 +6,7 @@ pub mod custom_panic;
 pub mod floppy_control;
 pub mod flux_reader;
 pub mod flux_writer;
+pub mod index_sim;
 pub mod interrupts;
 pub mod track_raw;
 pub mod usb;
@@ -23,11 +24,13 @@ use floppy_control::FloppyControl;
 use flux_reader::FluxReader;
 use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
+use index_sim::IndexSim;
 use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
 use usb::UsbHandler;
+use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
@@ -36,11 +39,10 @@ static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
 
 static ITM: Mutex<RefCell<Option<cortex_m::peripheral::ITM>>> = Mutex::new(RefCell::new(None));
+static INDEX_SIM: Mutex<RefCell<Option<IndexSim>>> = Mutex::new(RefCell::new(None));
 
 use alloc::sync::Arc;
 use alloc_cortex_m::CortexMHeap;
-
-use crate::usb::CURRENT_COMMAND;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -82,6 +84,7 @@ fn main() -> ! {
     cp.DWT.enable_cycle_counter();
     dp.RCC.apb1enr.modify(|_, w| w.tim2en().set_bit());
     dp.RCC.apb1enr.modify(|_, w| w.tim4en().set_bit());
+    dp.RCC.apb1enr.modify(|_, w| w.tim5en().set_bit()); // for index sim
     dp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
 
     let rcc = dp.RCC.constrain();
@@ -95,6 +98,10 @@ fn main() -> ! {
     // grab all important pins and configure them
     let debug_led_green = gpiod.pd12.into_push_pull_output();
     let _debug_led_orange = gpiod.pd13.into_push_pull_output();
+
+    // flippy disk index simulator
+    let _out_index_sim: Pin<'A', 1, Alternate<2, PushPull>> = gpioa.pa1.into_alternate(); // index sim on PA1, connected to TIM5_CH2, AF2
+    let index_sim = IndexSim::new(dp.TIM5);
 
     // now for the floppy bus pins in the order of the connector
     let out_density_select = gpiob
@@ -169,6 +176,7 @@ fn main() -> ! {
 
     cortex_m::interrupt::free(|cs| {
         *ITM.borrow(cs).borrow_mut() = Some(itm);
+        *INDEX_SIM.borrow(cs).borrow_mut() = Some(index_sim);
     });
 
     let reading_buffer: &mut Queue<u32, 512> =
