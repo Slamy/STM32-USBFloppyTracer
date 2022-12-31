@@ -13,8 +13,8 @@ use image_stx::parse_stx_image;
 use pretty_hex::{HexConfig, PrettyHex};
 use rawtrack::{RawImage, TrackFilter};
 use rusb::{Context, DeviceHandle};
-use std::fs::{self, File};
-use std::io::{BufWriter, Read, Write};
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::process::exit;
 use std::{ffi::OsStr, path::Path};
 use usb_commands::configure_device;
@@ -247,63 +247,75 @@ fn main() {
     }
 }
 
-fn md5_sum_of_file(path: &str) -> String {
-    let mut f = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
-
-    let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
-    let file_hash = md5::compute(&whole_file_buffer);
-    let file_hashstr = format!("{:x}", file_hash);
-    file_hashstr
-}
-
 #[cfg(test)]
 mod tests {
+    use std::{fs, io::Read};
+
     use super::*;
     use rstest::rstest;
 
+    fn md5_sum_of_file(path: &str) -> String {
+        let mut f = File::open(&path).expect("no file found");
+        let metadata = fs::metadata(&path).expect("unable to read metadata");
+
+        let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
+        let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
+        assert_eq!(bytes_read, metadata.len() as usize);
+        let file_hash = md5::compute(&whole_file_buffer);
+        let file_hashstr = format!("{:x}", file_hash);
+        file_hashstr
+    }
+
     #[rstest]
-    #[case(
+    #[case( // 1 - Standard ADF
         "../images/turrican.adf",
         "6677ce6cea38dc66be40e9211576a149",
         "b9167a41464460a0b4ebd8ddccd38f74"
     )]
-    #[case(
+    #[case( // 2 - Long Tracks Amiga
         "../images/Turrican.ipf",
         "654e52bec1555ab3802c21f6ea269e64",
-        "d5b13e4fc464924321f92a5e76ac855a"
+        "214d642b4043b96b1c739356e6432127"
     )]
-    #[case(
+    #[case( // 3 - Long Tracks Amiga
         "../images/Turrican2.ipf",
         "17abf9d8d5b2af451897f6db8c7f4868",
-        "d952bb8fa136be25906f8f0ebd2b9ef8"
+        "623564a1f6b1ec2dd1998cca3fd637af"
     )]
-    #[case(
+    #[case( // 4 - Standard D64
         "../images/Katakis_(CPX).d64",
         "a1a64b89c44d9c778b2677b0027e015e",
         "ace751801193ce5d8ff689c2e1eac003"
     )]
-    #[case(
+    #[case( // 5 - Buggy G64
         "../images/Katakis (Side 1).g64",
         "53c47c575d057181a1911e6653229324",
         "f0d02066cb590698bcf5b34573df61f7"
     )]
-    #[case(
+    #[case( // 6 - Custom STX
         "../images/Turrican (1990)(Rainbow Arts).stx",
         "4865957cd83562547a722c95e9a5421a",
         "8367a02c247e80d230f01c1841dddf1b"
     )]
-    #[case(
+    #[case( // 7 - Custom STX
         "../images/Turrican II (1991)(Rainbow Arts).stx",
         "fb96a28ad633208a973e725ceb67c155",
         "e142a9326a16ffb1c13aeaabb2856b20"
     )]
-    #[case(
+    #[case( // 8 - STX with CopyLock
         "../images/rodland.stx",
         "80f6322934ca1c76bb04b5c4d6d25097",
         "9dab1e0732200311eff31feb77bc1a87"
+    )]
+    #[case( // 9 - Amiga IPF with CopyLock
+        "../images/Gods_Disc1.ipf",
+        "7b2a11eda49fc6841834e792dab53997",
+        "eedd14867ee37d8d14bd188ea49d7b88"
+    )]
+    #[case( // 10 - Atari ST IPF with LongTracks
+        "../atarist_ipf/Turrican II - The Final Fight (Europe) (Budget - Kixx).ipf",
+        "f18557040f7370b5c682456e668412ef",
+        "3862da9519f64a1e91795c302b0326a8"
     )]
     fn known_image_regression_test(
         #[case] filepath: &str,

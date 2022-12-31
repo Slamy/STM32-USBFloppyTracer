@@ -17,9 +17,9 @@ Therefore I try to keep a list of images which are expected to work with this so
 | Jim Power in Mutant Planet (Europe) (Disk 1).ipf                            | 78b2a03c31a30aadbcb269e75ae94853 |                                       | Long Tracks (1.89 usec)|
 | Jumping Jack'Son (Europe).ipf                                               | b4106a4ae184f5547d87be0601c71c9e |                                       | Long Tracks (1.89 usec)|
 | Rodland (Europe) (v1.32).ipf                                                | 5bf77241b8ce88a323010e82bf18f3e0 |                                       | Variable Density Track |
-| Turrican2.ipf                                                               | 17abf9d8d5b2af451897f6db8c7f4868 | Might require write precompensation   | Long Tracks (1.80 usec)|
+| Turrican2.ipf                                                               | 17abf9d8d5b2af451897f6db8c7f4868 | Might require write precompensation   | Long Tracks (1.81 usec)|
 | Turrican III - Payment Day (Germany).ipf                                    | e471c215d5c58719aeec1172b6e2b0e5 |                                       | Long Tracks (1.80 usec)|
-| Turrican.ipf                                                                | 654e52bec1555ab3802c21f6ea269e64 |                                       | Long Tracks (1.85 usec)|
+| Turrican.ipf                                                                | 654e52bec1555ab3802c21f6ea269e64 |                                       | Long Tracks (1.88 usec)|
 | X-Out_1.ipf                                                                 | 1784c149245dfecde23223dc217604b0 | Sync on 0x8455. Nibble with X-Copy    | Custom Sync Word       |
 | Z-Out (Europe).ipf                                                          | 0ff89947aede0817f443712d3689f503 | Can be copied with X-Copy             | No Copy Protection?    |
 | Lemmings (Europe) (Amiga 500 Bundle - Cartoon Classics).ipf                 | d0d29f214ea57aef2bf1a8dfe508b8ba |                                       | Variable Density Track |
@@ -28,12 +28,21 @@ Therefore I try to keep a list of images which are expected to work with this so
 
 ### Atari ST
 
-| Name                                            | MD5                              | Notes                                     | Copy Protection Method                 |
-|-------------------------------------------------|----------------------------------|-------------------------------------------|----------------------------------------|
-| Rick Dangerous.stx                              | d365e49de69644e386ecb4dcba03509e |                                           |                                        |
-| Rodland.stx                                     | 80f6322934ca1c76bb04b5c4d6d25097 |                                           | CopyLock - Rob Northen Computing       |
-| Turrican (1990)(Rainbow Arts).stx               | 4865957cd83562547a722c95e9a5421a |                                           | Sector in Sector, No Flux Reversal Area|
-| Turrican II (1991)(Rainbow Arts).stx            | fb96a28ad633208a973e725ceb67c155 |                                           | Long Tracks                            |
+IPF files are the preferred image type here as they actually contain the flux data of the disk.
+STX files only contain the interpretation of the flux data by the WD1772 floppy disk controller and
+therefore require lots of labor to actually reconstruct a disk from that.
+
+| Name                                                      | MD5                              | Notes           | Copy Protection Method                 |
+|-----------------------------------------------------------|----------------------------------|-----------------|----------------------------------------|
+| Rick Dangerous.stx                                        | d365e49de69644e386ecb4dcba03509e |                 |                                        |
+| Rodland.stx                                               | 80f6322934ca1c76bb04b5c4d6d25097 |                 | CopyLock - Rob Northen Computing       |
+| Turrican (1990)(Rainbow Arts).stx                         | 4865957cd83562547a722c95e9a5421a |                 | Sector in Sector, No Flux Reversal Area|
+| Turrican II (1991)(Rainbow Arts).stx                      | fb96a28ad633208a973e725ceb67c155 |                 | Long Tracks                            |
+| Turrican II - The Final Fight (Europe) (Budget - Kixx).ipf| f18557040f7370b5c682456e668412ef |                 | Long Tracks (1.93 usec)                |
+| X-Out (Europe) (Disk 1).ipf                               | 1fd85af060f96619ba7b9cc3d12ff119 |                 | Long Tracks (1.96 usec)                |
+| Apprentice (Europe).ipf                                   | 324aa78a88b1e33e343998d58359d4a7 |                 |                                        |
+| James Pond II - Codename RoboCod (Europe).ipf             | a6b91be93105d903e0634b69c2be86bc |                 |                                        |
+| Thrust (Europe).ipf                                       | b76986a30c093cf22b718a3d7af771d6 |                 |                                        |
 
 
 ### C64
@@ -90,7 +99,7 @@ It seems that C64 images are rarely delivered as G64 file. Instead we usually ge
 
 *Some disks have a broken protection track. These are patched by the tool if found.
 
-## Not yet working with this tool
+## Not working with this tool
 
 This list doesn't mean that these images won't be supported in the future.
 It is mostly a TODO list for me and a hint for others who are struggling reconstructing this particular disk.

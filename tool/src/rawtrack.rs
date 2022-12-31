@@ -251,6 +251,10 @@ impl RawTrack {
                         &self.raw_data[start_view..current_track_offset + 5];
                     println!("impossible_data_position {:x?}", impossible_data_position);
 
+                    for i in impossible_data_position.iter() {
+                        println!("{:02x} {:08b}", i, i);
+                    }
+
                     let zero_pos = self.raw_data.iter().position(|d| *d == 0);
                     if let Some(zero_found) = zero_pos {
                         println!("zero_found at {}. This track needs fixing.", zero_found);
