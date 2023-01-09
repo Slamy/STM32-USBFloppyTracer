@@ -69,3 +69,10 @@ https://blog.rng0.io/how-to-do-code-coverage-in-rust
 CARGO_INCREMENTAL=0 RUSTFLAGS='-Cinstrument-coverage' LLVM_PROFILE_FILE='cargo-test-%p-%m.profraw' cargo test
 grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage_html
 firefox target/coverage_html/index.html
+
+
+https://computer-masters.de/laufwerksgroessen/
+https://en.wikipedia.org/wiki/Drive_bay
+
+Half-height drive bays are 1+5⁄8 inches (41.3 mm) high by 5+3⁄4 inches (146.1 mm) wide, and are the standard housing for CD and DVD drives in modern computers. They were sometimes used for other things in the past, including hard disk drives (roughly between 10 and 100 MB) and floppy disk drives. As the name indicates, two half-height devices can fit in one full-height bay. Often represented as 5.25-inch, these floppy disk drives are obsolete. 
+
