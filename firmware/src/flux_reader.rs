@@ -110,7 +110,7 @@ impl FluxReader {
         tim2.cr1.modify(|_, w| w.dir().up()); // count up
 
         tim2.ccmr2_input().write(|w| w.cc3s().ti3()); // select active input.
-        tim2.ccer.write(|w| w.cc3e().set_bit()); // enable capture on channel 3
+        tim2.ccer.write(|w| w.cc3e().set_bit().cc3p().set_bit()); // enable capture on channel 3
         tim2.dier.write(|w| w.cc3de().enabled()); // DMA request for channel 3
 
         // allocate static global safe buffers for double buffering DMA
