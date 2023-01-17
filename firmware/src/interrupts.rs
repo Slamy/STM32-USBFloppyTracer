@@ -11,7 +11,7 @@ use cassette::futures::poll_fn;
 use util::Track;
 
 use crate::{
-    floppy_control::FloppyControl, flux_reader::FluxReader, flux_writer::FluxWriter, safeiprintln,
+    floppy_control::FloppyControl, flux_reader::FluxReader, flux_writer::FluxWriter, rprintln,
 };
 
 pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
@@ -144,7 +144,7 @@ fn EXTI3() {
             .unwrap()
             .transmission_active()
         {
-            safeiprintln!("Warning! Overwriting my own track!");
+            rprintln!("Warning! Overwriting my own track!");
         }
 
         if START_TRANSMIT_ON_INDEX.borrow(cs).get() == true {

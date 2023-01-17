@@ -13,3 +13,7 @@ halt_afterwards = false
 [default.general]
 chip = "stm32f407VGTx"
 log_level = "WARN"
+
+[default.rtt]
+# Whether or not an RTTUI should be opened after flashing.
+enabled = true

@@ -10,7 +10,7 @@ use util::{
     RawCellData, Track,
 };
 
-use crate::{interrupts, safeiprintln, INDEX_SIM};
+use crate::{interrupts, rprintln, INDEX_SIM};
 
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
@@ -65,14 +65,15 @@ impl UsbHandler<'_> {
     pub fn response(&mut self, text: &str) {
         assert!(text.len() < 60);
 
-        for _try in 0..20 {
+        // TODO find better solution!
+        for _try in 0..2000 {
             let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
             match serial.write_packet(text.as_bytes()) {
                 Ok(len) if len > 0 => {
                     return; // All went well
                 }
                 _ => {
-                    safeiprintln!("Response has failed!");
+                    //rprintln!("Response has failed!");
                 }
             }
             self.handle();
@@ -176,7 +177,7 @@ impl UsbHandler<'_> {
                                     interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
                                 let floppy_control = floppy_control_borrow.as_mut().unwrap();
 
-                                safeiprintln!("Step to track {}", cylinder);
+                                rprintln!("Step to track {}", cylinder);
                                 floppy_control.select_track(Track {
                                     cylinder: Cylinder(cylinder as u8),
                                     head: Head(0),
@@ -210,7 +211,7 @@ impl UsbHandler<'_> {
                             assert!(old_command.is_none());
                         }
                         _ => {
-                            safeiprintln!("Unknown command");
+                            rprintln!("Unknown command");
                         }
                     }
                 } else {

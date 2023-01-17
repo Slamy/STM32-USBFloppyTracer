@@ -13,7 +13,7 @@ use crate::{
         self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_transmit,
         FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
-    orange, safeiprintln,
+    orange, rprintln,
     usb::UsbHandler,
 };
 
@@ -49,7 +49,7 @@ impl RawTrackHandler {
                 if motor_is_spinning {
                     Poll::Pending
                 } else {
-                    safeiprintln!("async_read_flux timeout!");
+                    rprintln!("async_read_flux timeout!");
                     Poll::Ready(None)
                 }
             }
@@ -68,7 +68,7 @@ impl RawTrackHandler {
         let mut verify_operations = 0;
 
         for _ in 0..5 {
-            safeiprintln!(
+            rprintln!(
                 "Write track at cyl:{} head:{} sigoff:{}",
                 track.cylinder.0,
                 track.head.0,
@@ -178,7 +178,7 @@ impl RawTrackHandler {
         });
 
         if let Err(_) = async_wait_for_transmit().await {
-            safeiprintln!("Transmit timeout? Drive not responsing.");
+            rprintln!("Transmit timeout? Drive not responsing.");
             return Err(());
         }
 
@@ -356,7 +356,7 @@ impl RawTrackHandler {
             usb_handler.handle();
         }
 
-        safeiprintln!(
+        rprintln!(
             "{} {} Collected {} {} blocks! {}   {} {}",
             track.cylinder.0,
             track.head.0,
@@ -470,7 +470,7 @@ impl RawTrackHandler {
             while pulses_to_throw_away > 0 {
                 let pulse = self.async_read_flux().await;
                 if pulse.is_none() {
-                    safeiprintln!("Timeout1");
+                    rprintln!("Timeout1");
                     cortex_m::interrupt::free(|cs| {
                         let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
                         let y2 = fr1.as_mut().unwrap();
@@ -489,7 +489,7 @@ impl RawTrackHandler {
             if let Some(pulse) = self.async_read_flux().await {
                 read_mfm_flux_data_queue.push_back(PulseDuration(pulse))
             } else {
-                safeiprintln!("Timeout2");
+                rprintln!("Timeout2");
 
                 cortex_m::interrupt::free(|cs| {
                     let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
@@ -507,7 +507,7 @@ impl RawTrackHandler {
         // there should be one position where it matches!
         for read_window_index in 0..READ_DATA_WINDOW_SIZE {
             if read_mfm_flux_data_queue.len() < COMPARE_WINDOW_SIZE {
-                safeiprintln!("Unable to cross correlate!");
+                rprintln!("Unable to cross correlate!");
 
                 cortex_m::interrupt::free(|cs| {
                     let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
@@ -576,7 +576,7 @@ impl RawTrackHandler {
                     // It is also pretty random. Sometimes it doesn't work at all.
                     flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
                 } else if !reference.similar(&readback, similarity_treshold) {
-                    safeiprintln!(
+                    rprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
                         reference.0,
                         readback.0,
@@ -605,7 +605,7 @@ impl RawTrackHandler {
             y2.stop_reception(cs);
         });
 
-        safeiprintln!(
+        rprintln!(
             "Verified {} pulses, Max error {} / {}, window match offset {}",
             successful_compares,
             maximum_diff,

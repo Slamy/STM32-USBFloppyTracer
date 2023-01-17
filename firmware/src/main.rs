@@ -18,13 +18,13 @@ use alloc::format;
 use cassette::Cassette;
 use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
-use cortex_m::iprintln;
 use cortex_m_rt::entry;
 use floppy_control::FloppyControl;
 use flux_reader::FluxReader;
 use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
 use index_sim::IndexSim;
+use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
@@ -38,7 +38,6 @@ use usbd_serial::CdcAcmClass;
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
 
-static ITM: Mutex<RefCell<Option<cortex_m::peripheral::ITM>>> = Mutex::new(RefCell::new(None));
 static INDEX_SIM: Mutex<RefCell<Option<IndexSim>>> = Mutex::new(RefCell::new(None));
 
 use alloc::sync::Arc;
@@ -46,25 +45,6 @@ use alloc_cortex_m::CortexMHeap;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
-
-#[macro_export]
-macro_rules! safeiprintln {
-    () => {
-        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
-        cortex_m::itm::write_str(&mut itm.stim[0], "\n");
-        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
-    };
-    ( $fmt:expr ) => {
-        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
-        cortex_m::itm::write_str(&mut itm.stim[0], concat!($fmt, "\n"));
-        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
-    };
-    ( $fmt:expr, $($arg:tt)*) => {
-        let mut itm = cortex_m::interrupt::free(|cs| crate::ITM.borrow(cs).borrow_mut().take().unwrap());
-        cortex_m::itm::write_fmt(&mut itm.stim[0], format_args!(concat!($fmt, "\n"), $($arg)*));
-        cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
-    };
-}
 
 #[inline(always)]
 fn orange(s: bool) {
@@ -86,6 +66,8 @@ fn main() -> ! {
         static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
         unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
     }
+
+    rtt_init_print!();
 
     let mut dp = pac::Peripherals::take().unwrap();
     let mut cp = cortex_m::Peripherals::take().unwrap();
@@ -174,8 +156,7 @@ fn main() -> ! {
     let dma1 = dp.DMA1;
     let dma1_arc1 = Arc::new(Mutex::new(dma1));
     let dma1_arc2 = Arc::clone(&dma1_arc1);
-    let mut itm = cp.ITM;
-    iprintln!(&mut itm.stim[0], "Go Go!");
+    rprintln!("Go Go!");
 
     let mut syst = cp.SYST;
     syst.set_reload(168000 / 4);
@@ -184,7 +165,6 @@ fn main() -> ! {
     syst.enable_interrupt();
 
     cortex_m::interrupt::free(|cs| {
-        *ITM.borrow(cs).borrow_mut() = Some(itm);
         *INDEX_SIM.borrow(cs).borrow_mut() = Some(index_sim);
     });
 
@@ -283,7 +263,7 @@ fn main() -> ! {
                 write_precompensation,
             }) => {
                 if in_write_protect.is_low() {
-                    safeiprintln!("Write Protection is active!");
+                    rprintln!("Write Protection is active!");
 
                     usb_handler.response("WriteProtected");
                 } else {

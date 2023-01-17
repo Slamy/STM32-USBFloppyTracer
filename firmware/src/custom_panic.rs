@@ -1,6 +1,5 @@
 use core::panic::PanicInfo;
-use cortex_m::iprintln;
-use cortex_m::peripheral::ITM;
+use rtt_target::rprintln;
 use stm32f4xx_hal::{pac, prelude::*};
 
 #[panic_handler]
@@ -25,10 +24,7 @@ fn panic(info: &PanicInfo) -> ! {
         .pb1
         .into_push_pull_output_in_state(stm32f4xx_hal::gpio::PinState::High);
 
-    let itm = unsafe { &mut *ITM::PTR };
-    let stim = &mut itm.stim[0];
-
-    iprintln!(stim, "{}", info);
+    rprintln!("{}", info);
 
     loop {
         // add some side effect to prevent this from turning into a UDF instruction
