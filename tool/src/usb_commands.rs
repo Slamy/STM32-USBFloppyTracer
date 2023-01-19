@@ -1,7 +1,7 @@
 use std::{slice::Iter, time::Duration};
 
 use rusb::{Context, DeviceHandle};
-use util::{Density, DriveSelectState};
+use util::{duration_of_rotation_as_stm_tim_raw, Density, DriveSelectState, DRIVE_3_5_RPM};
 
 use crate::rawtrack::RawTrack;
 
@@ -46,6 +46,66 @@ pub fn configure_device(
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
         .unwrap();
+}
+
+pub fn read_raw_track(
+    handles: &(DeviceHandle<Context>, u8, u8),
+    cylinder: u32,
+    head: u32,
+    wait_for_index: bool,
+) -> Vec<u8> {
+    let (handle, endpoint_in, endpoint_out) = handles;
+    let timeout = Duration::from_secs(10);
+
+    println!("Read raw track from Cyl:{} Head:{}", cylinder, head);
+
+    let mut command_buf = [0u8; 64];
+    let mut writer = command_buf.chunks_mut(4);
+
+    let duration_to_record: usize = duration_of_rotation_as_stm_tim_raw(DRIVE_3_5_RPM) * 110 / 100;
+    let wait_for_index = if wait_for_index { 1 << 9 } else { 0 };
+
+    let header = vec![
+        0x12340004,
+        cylinder | (head << 8) | wait_for_index,
+        duration_to_record as u32,
+    ];
+
+    for word in header {
+        writer
+            .next()
+            .unwrap()
+            .clone_from_slice(&u32::to_le_bytes(word));
+    }
+
+    handle
+        .write_bulk(*endpoint_out, &command_buf, timeout)
+        .unwrap();
+
+    let mut result = Vec::with_capacity(800 * 64); // TODO magic number
+
+    loop {
+        let mut in_buf = [0u8; 64];
+
+        let size = handle
+            .read_bulk(*endpoint_in, &mut in_buf, timeout)
+            .unwrap();
+
+        if size == 64 {
+            result.extend_from_slice(&in_buf);
+        } else if size == 0 {
+            // End sign
+            break;
+        } else {
+            let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
+            panic!("{}", response_text);
+        }
+    }
+
+    if result.len() == 64 {
+        println!("{:?}", result);
+    }
+    result
 }
 
 pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {

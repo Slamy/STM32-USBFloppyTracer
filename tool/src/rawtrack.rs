@@ -135,42 +135,51 @@ impl RawTrack {
             } else if significance > 0 {
                 significance -= 1;
             }
+
+            //println!("{} {} {}", i, significance, val.0);
         }
         None
     }
 
     pub fn get_significance_offset(&mut self) -> usize {
-        // TODO this is ugly
-        let pulses = self.convert_to_pulses();
+        let possible_offset = self.first_significane_offset.or_else(|| {
+            let pulses = self.convert_to_pulses();
+            match self.encoding {
+                Encoding::GCR => self.find_significance_through_divergence(&pulses, pulses[0]),
+                Encoding::MFM => self.find_significance_longer_pulses(
+                    &pulses,
+                    PulseDuration(self.densitymap[0].cell_size.0 * 2 + 30),
+                ),
+            }
+        });
 
-        let mut possible_offset = self.find_significance_through_divergence(&pulses, pulses[0]);
-        if let Some(offset) = possible_offset {
-            self.first_significane_offset = possible_offset;
-            return offset;
-        }
+        self.first_significane_offset = possible_offset;
 
-        // TODO remove magic numbers
-        possible_offset =
-            self.find_significance_longer_pulses(&pulses, PulseDuration(168 * 2 + 30));
-        if let Some(offset) = possible_offset {
-            self.first_significane_offset = possible_offset;
-            return offset;
-        }
-
-        // TODO this is ugly too
-        panic!(
-            "Unable to find an offset of significance for the verification of track {}!",
-            self.cylinder
+        /*
+        println!(
+            "Signifance {} {} {:?}",
+            self.cylinder, self.head, self.first_significane_offset
         );
+        */
+        possible_offset.expect(
+            format!(
+                "Unable to find an offset of significance for the verification of track {}!",
+                self.cylinder
+            )
+            .as_str(),
+        )
     }
 
     fn convert_to_pulses(&self) -> Vec<PulseDuration> {
         let mut result = Vec::new();
 
+        let ref_duration = self.densitymap[0].cell_size.0 as u32;
+
         // TODO avoid clone
         let cell_data =
             RawCellData::construct(self.densitymap.clone(), self.raw_data.clone(), false);
-        let mut write_prod_fpg = FluxPulseGenerator::new(|f| result.push(f), 0);
+
+        let mut write_prod_fpg = FluxPulseGenerator::new(|f| result.push(f), ref_duration);
 
         // start with a flux transition. avoids long sequences of zero
         for part in cell_data.borrow_parts() {
@@ -370,9 +379,9 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
 }
 
 pub struct TrackFilter {
-    cyl_start: Option<u32>,
-    cyl_end: Option<u32>,
-    head: Option<u32>,
+    pub cyl_start: Option<u32>,
+    pub cyl_end: Option<u32>,
+    pub head: Option<u32>,
 }
 impl TrackFilter {
     fn from_track_split(track_split: Vec<&str>, head: Option<u32>) -> Self {

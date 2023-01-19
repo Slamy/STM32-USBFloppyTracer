@@ -53,7 +53,7 @@ where
 
     pub fn feed(&mut self, cell: Bit) {
         self.pulse_accumulator += self.cell_duration as i32;
-        
+
         // collect incoming cells for later analysis.
         self.shift_word <<= 1;
         if cell.0 {
@@ -137,6 +137,8 @@ where
     }
 
     pub fn feed(&mut self, mut duration: PulseDuration) {
+        assert!(duration.0 > self.cell_duration / 2, "Pulse was too short!");
+
         while duration.0 > (self.cell_duration + self.cell_duration / 2) {
             duration.0 -= self.cell_duration;
             (self.sink)(Bit(false));
@@ -187,7 +189,6 @@ mod tests {
             vec![200, 200, 200, 300, 250, 250, 250, 250, 250, 250, 250, 250, 300, 200, 200, 400]
         );
         assert_eq!(normal_data_duration, weak_bit_data_duration);
-
     }
 
     #[test]

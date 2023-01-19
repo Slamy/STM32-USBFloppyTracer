@@ -13,7 +13,7 @@ impl IndexSim {
         tim5.ccmr1_output().modify(|_, w| w.oc2m().force_inactive());
         tim5.ccer.write(|w| w.cc2e().set_bit().cc2p().clear_bit()); //activate channel 2 output with normal polarity
 
-        IndexSim { tim5 }
+        Self { tim5 }
     }
 
     pub fn configure(&self, frequency: u32) {

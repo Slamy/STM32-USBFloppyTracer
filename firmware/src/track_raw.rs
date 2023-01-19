@@ -1,6 +1,6 @@
 use core::{cell::RefCell, cmp::max, future::Future, task::Poll};
 
-use alloc::collections::VecDeque;
+use alloc::{collections::VecDeque, vec::Vec};
 use cassette::futures::poll_fn;
 use heapless::spsc::{Consumer, Producer};
 
@@ -13,36 +13,45 @@ use crate::{
         self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_transmit,
         FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
-    safeiprintln,
+    orange, safeiprintln,
+    usb::UsbHandler,
 };
 
-pub struct RawTrackWriter {
+pub struct RawTrackHandler {
     pub read_cons: Consumer<'static, u32, 512>,
     pub write_prod_cell: RefCell<Producer<'static, u32, 128>>,
     pub track_data_to_write: Option<RawCellData>,
-    pub timeout_cnt: u32,
 }
 
-enum RawTrackError {
+#[derive(Debug)]
+pub enum RawTrackError {
     NoIndexPulse,
     NoIncomingData,
     NoCrossCorrelation,
     DataNotEqual,
 }
 
-impl RawTrackWriter {
-    fn async_read_flux(&mut self) -> impl Future<Output = i32> + '_ {
-        self.timeout_cnt = 800;
-
+impl RawTrackHandler {
+    fn async_read_flux(&mut self) -> impl Future<Output = Option<i32>> + '_ {
         poll_fn(move |_| {
-            self.timeout_cnt -= 1;
-
             if let Some(pulse_duration) = self.read_cons.dequeue() {
-                Poll::Ready(pulse_duration as i32)
-            } else if self.timeout_cnt == 0 {
-                Poll::Ready(-1)
+                Poll::Ready(Some(pulse_duration as i32))
             } else {
-                Poll::Pending
+                let motor_is_spinning = cortex_m::interrupt::free(|cs| {
+                    interrupts::FLOPPY_CONTROL
+                        .borrow(cs)
+                        .borrow_mut()
+                        .as_mut()
+                        .unwrap()
+                        .is_spinning()
+                });
+
+                if motor_is_spinning {
+                    Poll::Pending
+                } else {
+                    safeiprintln!("async_read_flux timeout!");
+                    Poll::Ready(None)
+                }
             }
         })
     }
@@ -204,6 +213,163 @@ impl RawTrackWriter {
         Ok(())
     }
 
+    pub async fn read_track(
+        &mut self,
+        track: Track,
+        duration_to_record: u32,
+        wait_for_index: bool,
+        usb_handler: &mut UsbHandler<'_>,
+    ) -> Result<(), RawTrackError> {
+        // keep the motor spinning
+        cortex_m::interrupt::free(|cs| {
+            interrupts::FLOPPY_CONTROL
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .spin_motor();
+        });
+
+        while let Some(_) = self.read_cons.dequeue() {}
+
+        async_select_and_wait_for_track(track).await;
+
+        if wait_for_index {
+            // Throw away all data in the queue before we read real data
+            while let Some(_) = self.read_cons.dequeue() {}
+
+            // start reception of track on next index pulse
+            cortex_m::interrupt::free(|cs| {
+                START_RECEIVE_ON_INDEX.borrow(cs).set(true);
+            });
+            if let Err(_) = async_wait_for_index().await {
+                return Err(RawTrackError::NoIndexPulse);
+            };
+        } else {
+            cortex_m::interrupt::free(|cs| {
+                FLUX_READER
+                    .borrow(cs)
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .start_reception(cs);
+            });
+        }
+        orange(true);
+        let mut collect_buffer: Vec<u8> = Vec::with_capacity(64);
+        let mut usb_frames_transferred = 0;
+        let mut usb_frames_collected = 0;
+
+        let mut buffers: VecDeque<Vec<u8>> = VecDeque::new();
+        let mut max_slack = 0;
+
+        let mut timeout = 0;
+        let mut duration_yet_recorded = 0;
+        let mut required_duration_was_recorded = false;
+
+        // Throw away the first 2 pulses.
+        // For yet unknown reasons the first two are garbage.
+        // TODO Are they coming from the DMA?
+        if self.async_read_flux().await.is_none() {
+            cortex_m::interrupt::free(|cs| {
+                let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
+                let y2 = fr1.as_mut().unwrap();
+                y2.stop_reception(cs);
+            });
+            return Err(RawTrackError::NoIncomingData);
+        }
+        self.async_read_flux().await;
+
+        while usb_frames_transferred < usb_frames_collected
+            || required_duration_was_recorded == false
+        {
+            // Some data to send?
+            if let Some(front) = buffers.front() {
+                if let Ok(size) = usb_handler.write(&front) {
+                    assert_eq!(size, 64);
+
+                    max_slack = max_slack.max(buffers.len());
+                    buffers.pop_front();
+                    usb_frames_transferred += 1;
+                }
+                usb_handler.handle();
+            }
+
+            if let Some(pulse) = self.read_cons.dequeue() {
+                timeout = 0;
+                duration_yet_recorded += pulse;
+                // TODO magic number
+                let mut reduced_pulse = pulse >> 3;
+
+                if pulse & 0b100 != 0 {
+                    //round up
+                    reduced_pulse += 1;
+                }
+
+                if reduced_pulse > 0xff {
+                    reduced_pulse = 0xff;
+                }
+
+                collect_buffer.push(reduced_pulse as u8);
+
+                if collect_buffer.len() == 64 {
+                    let new_buffer: Vec<u8> = Vec::with_capacity(64);
+                    let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
+                    buffers.push_back(old_buffer);
+
+                    usb_frames_collected += 1;
+
+                    if duration_yet_recorded >= duration_to_record {
+                        required_duration_was_recorded = true;
+                        cortex_m::interrupt::free(|cs| {
+                            let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
+                            let y2 = fr1.as_mut().unwrap();
+                            y2.stop_reception(cs);
+                        });
+                        orange(false);
+                        // Throw away remaining data
+                        while let Some(_) = self.read_cons.dequeue() {}
+                    }
+                }
+            } else {
+                timeout += 1;
+                // TODO magic number
+                if timeout == 0x800_000 {
+                    cortex_m::interrupt::free(|cs| {
+                        let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
+                        let y2 = fr1.as_mut().unwrap();
+                        y2.stop_reception(cs);
+                    });
+                    // Throw away remaining data
+                    while let Some(_) = self.read_cons.dequeue() {}
+                    return Err(RawTrackError::NoIncomingData);
+                }
+            }
+        }
+
+        // Send empty end package
+        loop {
+            if let Ok(size) = usb_handler.write(&[0; 0]) {
+                assert_eq!(size, 0);
+                break;
+            }
+            usb_handler.handle();
+        }
+
+        safeiprintln!(
+            "{} {} Collected {} {} blocks! {}   {} {}",
+            track.cylinder.0,
+            track.head.0,
+            usb_frames_transferred,
+            usb_frames_collected,
+            max_slack,
+            duration_yet_recorded,
+            duration_to_record
+        );
+
+        Ok(())
+    }
+
     async fn verify_track(
         &mut self,
         first_significance_offset: usize,
@@ -303,7 +469,7 @@ impl RawTrackWriter {
             let mut pulses_to_throw_away = first_significance_offset - 10;
             while pulses_to_throw_away > 0 {
                 let pulse = self.async_read_flux().await;
-                if pulse == -1 {
+                if pulse.is_none() {
                     safeiprintln!("Timeout1");
                     cortex_m::interrupt::free(|cs| {
                         let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
@@ -320,8 +486,9 @@ impl RawTrackWriter {
 
         // now record something slightly larger than the "significant window"
         while read_mfm_flux_data_queue.len() < READ_DATA_WINDOW_SIZE {
-            let pulse = self.async_read_flux().await;
-            if pulse == -1 {
+            if let Some(pulse) = self.async_read_flux().await {
+                read_mfm_flux_data_queue.push_back(PulseDuration(pulse))
+            } else {
                 safeiprintln!("Timeout2");
 
                 cortex_m::interrupt::free(|cs| {
@@ -332,7 +499,6 @@ impl RawTrackWriter {
                 self.track_data_to_write = Some(track_data_to_write);
                 return Err(RawTrackError::NoIncomingData);
             };
-            read_mfm_flux_data_queue.push_back(PulseDuration(pulse))
         }
 
         let mut equal = false; // set to true if correlation is found

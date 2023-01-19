@@ -1,4 +1,4 @@
-use crate::image_iso::{
+use super::image_iso::{
     generate_iso_data_header, generate_iso_data_with_broken_crc, generate_iso_data_with_crc,
     generate_iso_gap, generate_iso_sectorheader,
 };
@@ -201,7 +201,7 @@ pub fn parse_stx_image(path: &str) -> RawImage {
         current_track_record_position = next_track_record_offset;
     }
 
-    tracks.sort_by(|a, b| a.cylinder.cmp(&b.cylinder));
+    tracks.sort_by_key(|a| a.cylinder);
 
     RawImage {
         tracks,
@@ -263,7 +263,7 @@ fn read_sector_descriptors(
     // Sort them by the bit_position which marks the position of the sector on disk.
     // For an emulator this is not important but we are writing a track here from start
     // to finish in one sitting.
-    sectors.sort_by(|a, b| a.bit_position.cmp(&b.bit_position));
+    sectors.sort_by_key(|a| a.bit_position);
 
     (sectors, timing_data_size)
 }

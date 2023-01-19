@@ -182,7 +182,7 @@ impl FluxWriter {
         dma1: Arc<Mutex<DMA1>>,
         cons: Consumer<'static, u32, 128>,
         write_gate: Pin<'B', 5, Output>,
-    ) -> FluxWriter {
+    ) -> Self {
         const ACTIVE_PULSE_LEN: u16 = 40;
 
         tim4.cr1.modify(|_, w| w.dir().down());
@@ -201,7 +201,7 @@ impl FluxWriter {
             cortex_m::singleton!(: Vec::<u16, BUFFER_SIZE> = Vec::<u16, BUFFER_SIZE>::new())
                 .unwrap();
 
-        FluxWriter {
+        Self {
             tim4,
             dma1,
             current_buffer: first_buffer,

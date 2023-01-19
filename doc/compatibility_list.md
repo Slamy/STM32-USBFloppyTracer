@@ -11,6 +11,7 @@ Therefore I try to keep a list of images which are expected to work with this so
 | Name                                                                        | MD5                              | Notes                                 | Copy Protection Method |
 |-----------------------------------------------------------------------------|----------------------------------|---------------------------------------|------------------------|
 | Apidya (Germany) (En) (Disk 1).ipf                                          | 3adf2ffa5fbf740515576c10f46e1a67 |                                       | Long Tracks (1.80 usec)|
+| Apprentice.ipf                                                              | 3d5ca39d0fa07feb9d0099f684b2633f |                                       |                        |
 | EnchantedLand.ipf                                                           | d907e262b6a3a72e0c690216bb9d0290 |                                       | Long Tracks (1.96 usec)|
 | Gods_Disc1.ipf                                                              | 7b2a11eda49fc6841834e792dab53997 |                                       | Variable Density Track |
 | James Pond II - Codename RoboCod (Europe).ipf                               | 7ef8e61c300717005e78a1b6494a84d4 |                                       | Long Tracks (1.80 usec)|

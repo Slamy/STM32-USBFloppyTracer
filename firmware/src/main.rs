@@ -33,7 +33,7 @@ use usb::UsbHandler;
 use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
-use usbd_serial::SerialPort;
+use usbd_serial::CdcAcmClass;
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -64,6 +64,15 @@ macro_rules! safeiprintln {
         cortex_m::itm::write_fmt(&mut itm.stim[0], format_args!(concat!($fmt, "\n"), $($arg)*));
         cortex_m::interrupt::free(|cs| *crate::ITM.borrow(cs).borrow_mut() = Some(itm));
     };
+}
+
+#[inline(always)]
+fn orange(s: bool) {
+    if s {
+        unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << 13)) };
+    } else {
+        unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << (13 + 16))) };
+    }
 }
 
 #[entry]
@@ -191,7 +200,7 @@ fn main() -> ! {
     let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, out_write_gate);
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
-    let serial = SerialPort::new(usb_bus);
+    let serial = CdcAcmClass::new(usb_bus, 64);
 
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Slamy")
@@ -233,11 +242,10 @@ fn main() -> ! {
 
     let mut next_command: Option<usb::Command> = None;
 
-    let mut raw_track_writer = track_raw::RawTrackWriter {
+    let mut raw_track_writer = track_raw::RawTrackHandler {
         read_cons,
         write_prod_cell: RefCell::new(write_prod),
         track_data_to_write: None,
-        timeout_cnt: 0,
     };
 
     loop {
@@ -248,12 +256,32 @@ fn main() -> ! {
         });
 
         match next_command.take() {
-            Some(usb::Command::WriteVerifyRawTrack(
+            Some(usb::Command::ReadTrack {
+                track,
+                duration_to_record,
+                wait_for_index,
+            }) => {
+                let write_verify_fut = Box::pin(raw_track_writer.read_track(
+                    track,
+                    duration_to_record,
+                    wait_for_index,
+                    &mut usb_handler,
+                ));
+                let cm = Cassette::new(write_verify_fut);
+
+                let result = cm.block_on();
+                if let Err(err) = result {
+                    let str_response = format!("Fail {:?}", err);
+                    usb_handler.response(&str_response);
+                }
+                // TODO use result properly
+            }
+            Some(usb::Command::WriteVerifyRawTrack {
                 track,
                 raw_cell_data,
                 first_significance_offset,
                 write_precompensation,
-            )) => {
+            }) => {
                 if in_write_protect.is_low() {
                     safeiprintln!("Write Protection is active!");
 

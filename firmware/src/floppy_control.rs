@@ -44,8 +44,8 @@ impl FloppyControl {
         in_track_00: Pin<'B', 7>,
         out_head_select: Pin<'B', 11, Output>,
         out_density_select: Pin<'B', 13, Output>,
-    ) -> FloppyControl {
-        FloppyControl {
+    ) -> Self {
+        Self {
             out_motor_enable_a,
             out_drive_select_b,
             out_drive_select_a,

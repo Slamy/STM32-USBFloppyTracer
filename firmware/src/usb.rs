@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use cortex_m::interrupt::Mutex;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
-use usbd_serial::SerialPort;
+use usbd_serial::CdcAcmClass;
 use util::{
     Cylinder, Density, DensityMap, DensityMapEntry, DriveSelectState, Head, PulseDuration,
     RawCellData, Track,
@@ -15,11 +15,21 @@ use crate::{interrupts, safeiprintln, INDEX_SIM};
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
 pub enum Command {
-    WriteVerifyRawTrack(Track, RawCellData, usize, PulseDuration),
+    WriteVerifyRawTrack {
+        track: Track,
+        raw_cell_data: RawCellData,
+        first_significance_offset: usize,
+        write_precompensation: PulseDuration,
+    },
+    ReadTrack {
+        track: Track,
+        duration_to_record: u32,
+        wait_for_index: bool,
+    },
 }
 
 pub struct UsbHandler<'a> {
-    usb_serial: SerialPort<'a, UsbBus<USB>>,
+    usb_serial: CdcAcmClass<'a, UsbBus<USB>>,
     usb_dev: UsbDevice<'a, UsbBus<USB>>,
     receive_buffer: Vec<u8>,
     speeds: DensityMap,
@@ -28,13 +38,13 @@ pub struct UsbHandler<'a> {
     cylinder: u32,
     head: u32,
     has_non_flux_reversal_area: bool,
-    first_significane_offset: u32,
+    first_significance_offset: u32,
     write_precompensation: PulseDuration,
 }
 
 impl UsbHandler<'_> {
     pub fn new<'a>(
-        usb_serial: SerialPort<'a, UsbBus<USB>>,
+        usb_serial: CdcAcmClass<'a, UsbBus<USB>>,
         usb_dev: UsbDevice<'a, UsbBus<USB>>,
     ) -> UsbHandler<'a> {
         UsbHandler {
@@ -47,7 +57,7 @@ impl UsbHandler<'_> {
             cylinder: 0,
             head: 0,
             has_non_flux_reversal_area: false,
-            first_significane_offset: 0,
+            first_significance_offset: 0,
             write_precompensation: PulseDuration(0),
         }
     }
@@ -55,27 +65,40 @@ impl UsbHandler<'_> {
     pub fn response(&mut self, text: &str) {
         assert!(text.len() < 60);
 
-        let serial: &mut SerialPort<UsbBus<USB>> = &mut self.usb_serial;
-        match serial.write(text.as_bytes()) {
-            Ok(len) if len > 0 => { /* Good */ }
-            _ => {
-                safeiprintln!("No!");
+        for _try in 0..20 {
+            let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
+            match serial.write_packet(text.as_bytes()) {
+                Ok(len) if len > 0 => {
+                    return; // All went well
+                }
+                _ => {
+                    safeiprintln!("Response has failed!");
+                }
             }
+            self.handle();
         }
+        panic!("Unable to response!");
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> Result<usize, UsbError> {
+        assert!(data.len() <= 64);
+        let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
+        serial.write_packet(data)
     }
 
     pub fn handle(&mut self) {
-        let serial: &mut SerialPort<UsbBus<USB>> = &mut self.usb_serial;
+        let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
 
         if self.usb_dev.poll(&mut [serial]) {
             let mut buf = [0u8; 64];
 
-            if let Ok(count) = serial.read(&mut buf) {
+            if let Ok(count) = serial.read_packet(&mut buf) {
                 if self.remaining_blocks == 0 {
                     let mut header = buf.chunks(4);
 
                     let command = u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                     match command {
+                        // Write track
                         0x12340001 => {
                             self.expected_size =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap())
@@ -93,7 +116,7 @@ impl UsbHandler<'_> {
                             self.write_precompensation =
                                 PulseDuration(((packed_configuration >> 16) & 0xff) as i32);
 
-                            self.first_significane_offset =
+                            self.first_significance_offset =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
                             let speed_table_size =
@@ -110,6 +133,7 @@ impl UsbHandler<'_> {
                             }
                             self.receive_buffer.reserve(self.expected_size);
                         }
+                        // Configure drive
                         0x12340002 => {
                             let settings =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -143,6 +167,7 @@ impl UsbHandler<'_> {
                                 floppy_control.select_density(floppy_density);
                             });
                         }
+                        // step to track
                         0x12340003 => {
                             let cylinder =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -157,6 +182,32 @@ impl UsbHandler<'_> {
                                     head: Head(0),
                                 });
                             });
+                        }
+                        // read track
+                        0x12340004 => {
+                            let packed_configuration =
+                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
+                            let duration_to_record =
+                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
+                            let cylinder = packed_configuration & 0xff;
+                            let head = (packed_configuration >> 8) & 1;
+                            let wait_for_index = ((packed_configuration >> 9) & 1) != 0;
+                            let new_command = Command::ReadTrack {
+                                track: Track {
+                                    cylinder: Cylinder(cylinder as u8),
+                                    head: Head(head as u8),
+                                },
+                                duration_to_record,
+                                wait_for_index,
+                            };
+
+                            let old_command = cortex_m::interrupt::free(|cs| {
+                                CURRENT_COMMAND.borrow(cs).borrow_mut().replace(new_command)
+                            });
+
+                            // Last command shall be not existing.
+                            // If it exists, it was dropped now, which is not good
+                            assert!(old_command.is_none());
                         }
                         _ => {
                             safeiprintln!("Unknown command");
@@ -178,19 +229,19 @@ impl UsbHandler<'_> {
                         core::mem::swap(&mut recv_buffer, &mut self.receive_buffer);
                         core::mem::swap(&mut speeds, &mut self.speeds);
 
-                        let new_command = Command::WriteVerifyRawTrack(
-                            Track {
+                        let new_command = Command::WriteVerifyRawTrack {
+                            track: Track {
                                 cylinder: Cylinder(self.cylinder as u8),
                                 head: Head(self.head as u8),
                             },
-                            RawCellData::construct(
+                            raw_cell_data: RawCellData::construct(
                                 speeds,
                                 recv_buffer,
                                 self.has_non_flux_reversal_area,
                             ),
-                            self.first_significane_offset as usize,
-                            self.write_precompensation,
-                        );
+                            first_significance_offset: self.first_significance_offset as usize,
+                            write_precompensation: self.write_precompensation,
+                        };
 
                         let old_command = cortex_m::interrupt::free(|cs| {
                             CURRENT_COMMAND.borrow(cs).borrow_mut().replace(new_command)

@@ -3,6 +3,7 @@
 extern crate alloc;
 
 pub mod bitstream;
+pub mod c64_geometry;
 pub mod fluxpulse;
 pub mod gcr;
 pub mod mfm;
@@ -62,6 +63,10 @@ pub const DRIVE_3_5_RPM: f64 = 300.2; // Normally 300 RPM would be correct. But 
 pub const STM_TIMER_MHZ: f64 = 84.0;
 pub const STM_TIMER_HZ: f64 = 84e6;
 
+pub fn duration_of_rotation_as_stm_tim_raw(rpm: f64) -> usize {
+    (60.0 / rpm * STM_TIMER_HZ) as usize
+}
+
 pub type DensityMap = Vec<DensityMapEntry>;
 
 pub fn reduce_densitymap(densitymap: DensityMap) -> DensityMap {
@@ -89,11 +94,7 @@ pub struct RawCellData {
 }
 
 impl RawCellData {
-    pub fn construct(
-        speeds: DensityMap,
-        cells: Vec<u8>,
-        has_non_flux_reversal_area: bool,
-    ) -> RawCellData {
+    pub fn construct(speeds: DensityMap, cells: Vec<u8>, has_non_flux_reversal_area: bool) -> Self {
         let speeds2 = speeds.clone();
 
         RawCellDataBuilder {
@@ -142,5 +143,16 @@ impl PartialEq<bool> for Bit {
 impl PulseDuration {
     pub fn similar(&self, other: &PulseDuration, threshold: i32) -> bool {
         i32::abs(self.0 - other.0) < threshold
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duration_of_rotation_as_stm_tim_raw_test() {
+        let result = duration_of_rotation_as_stm_tim_raw(300.0);
+        assert_eq!(result as u32, 16800000);
     }
 }

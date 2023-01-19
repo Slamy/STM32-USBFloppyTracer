@@ -30,7 +30,8 @@ impl FluxReader {
 
         for i in self.current_buffer.iter() {
             let duration = i.wrapping_sub(self.last_pulse_cnt);
-            self.prod.enqueue(duration).unwrap();
+
+            self.prod.enqueue(duration).expect("Flux Reader Overflow");
             self.last_pulse_cnt = *i;
         }
     }
@@ -50,11 +51,8 @@ impl FluxReader {
     pub fn stop_reception(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[1];
 
-        assert!(dma_stream.cr.read().en().is_enabled() == true);
-        assert!(self.tim2.cr1.read().cen().is_enabled() == true);
-
-        dma_stream.cr.modify(|_, w| w.en().disabled()); // enable dma
-        self.tim2.cr1.modify(|_, w| w.cen().clear_bit()); // enable timer
+        dma_stream.cr.modify(|_, w| w.en().disabled()); // disable dma
+        self.tim2.cr1.modify(|_, w| w.cen().clear_bit()); // disable timer
     }
 
     pub fn start_reception(&mut self, cs: &CriticalSection) {
@@ -96,17 +94,14 @@ impl FluxReader {
         }
 
         self.tim2.cnt.write(|w| w.cnt().bits(0)); // reset count to 0
+        self.tim2.ccr3.write(|f| f.ccr().bits(0)); // reset count to 0
         self.last_pulse_cnt = 0;
 
         dma_stream.cr.modify(|_, w| w.en().enabled()); // enable dma
         self.tim2.cr1.modify(|_, w| w.cen().set_bit()); // enable timer
     }
 
-    pub fn new(
-        tim2: TIM2,
-        dma1: Arc<Mutex<DMA1>>,
-        prod: Producer<'static, u32, 512>,
-    ) -> FluxReader {
+    pub fn new(tim2: TIM2, dma1: Arc<Mutex<DMA1>>, prod: Producer<'static, u32, 512>) -> Self {
         tim2.cr1.modify(|_, w| w.dir().up()); // count up
 
         tim2.ccmr2_input().write(|w| w.cc3s().ti3()); // select active input.
@@ -121,7 +116,7 @@ impl FluxReader {
             cortex_m::singleton!(: Vec::<u32, BUFFER_SIZE> = Vec::<u32, BUFFER_SIZE>::new())
                 .unwrap();
 
-        FluxReader {
+        Self {
             prod,
             dma1,
             tim2,

@@ -162,9 +162,7 @@ pub fn parse_adf_image(path: &str) -> RawImage {
 mod tests {
     use std::convert::TryInto;
 
-    use crate::image_adf::AMIGA_MFM_MASK;
-
-    use super::{generate_amiga_track, BYTES_PER_SECTOR, SECTORS_PER_TRACK};
+    use super::*;
 
     fn check_aligned_amiga_mfm_track(buffer: &Vec<u8>) {
         let mut longs = buffer.chunks(4);

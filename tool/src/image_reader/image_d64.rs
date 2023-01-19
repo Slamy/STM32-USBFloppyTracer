@@ -3,42 +3,11 @@ use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Read;
 use util::bitstream::{to_bit_stream, BitStreamCollector};
+use util::c64_geometry::get_track_settings;
 use util::gcr::to_gcr_stream;
-use util::{Cylinder, DensityMapEntry, PulseDuration};
+use util::{DensityMapEntry, PulseDuration};
 
-struct TrackConfiguration {
-    cellsize: usize,
-    sectors: u8,
-    gap_size: usize,
-}
-
-fn get_track_settings(cyl: Cylinder) -> TrackConfiguration {
-    if cyl.0 <= 16 {
-        TrackConfiguration {
-            cellsize: 227,
-            sectors: 21,
-            gap_size: 8,
-        }
-    } else if cyl.0 <= 23 {
-        TrackConfiguration {
-            cellsize: 245,
-            sectors: 19,
-            gap_size: 17,
-        }
-    } else if cyl.0 <= 29 {
-        TrackConfiguration {
-            cellsize: 262,
-            sectors: 18,
-            gap_size: 12,
-        }
-    } else {
-        TrackConfiguration {
-            cellsize: 280,
-            sectors: 17,
-            gap_size: 9,
-        }
-    }
-}
+// http://www.baltissen.org/newhtm/1541c.htm
 
 pub fn parse_d64_image(path: &str) -> RawImage {
     println!("Reading D64 from {} ...", path);
@@ -51,13 +20,15 @@ pub fn parse_d64_image(path: &str) -> RawImage {
     let cylinders: u8 = 35;
     let bytes_per_sector = 256;
 
+    // Nothing specific as disk id. Just something random.
     let id1 = 0x39_u8;
     let id2 = 0x30_u8;
 
     let mut tracks: Vec<RawTrack> = Vec::new();
 
     for src_cylinder in 0..cylinders {
-        let settings = get_track_settings(Cylinder(src_cylinder));
+        let tracknum = src_cylinder + 1;
+        let settings = get_track_settings(tracknum as usize);
         let mut trackbuf: Vec<u8> = Vec::new();
         let c64header_track = src_cylinder + 1;
 
@@ -89,11 +60,6 @@ pub fn parse_d64_image(path: &str) -> RawImage {
 
             //Gap #3
             feed_raw(0x55);
-            feed_raw(0x55);
-            feed_raw(0x55);
-            feed_raw(0x55);
-            feed_raw(0x55);
-
             feed_raw(0x55);
             feed_raw(0x55);
             feed_raw(0x55);

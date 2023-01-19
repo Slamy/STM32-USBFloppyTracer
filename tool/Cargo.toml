@@ -17,6 +17,7 @@ rusb = "0.9.1"
 util = { path = "../util" }
 pretty-hex = "0.3.0"
 rstest = "0.16.0"
+anyhow = "1.0.68"
 
 [build-dependencies]
 bindgen = "0.63.0"

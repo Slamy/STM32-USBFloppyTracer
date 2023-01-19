@@ -7,6 +7,12 @@ pub enum MfmWord {
     SyncWord,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum RawMfmWord {
+    Raw(u32),
+    SyncWord,
+}
+
 pub struct MfmEncoder<T>
 where
     T: FnMut(Bit),
@@ -33,8 +39,8 @@ impl<T> MfmEncoder<T>
 where
     T: FnMut(Bit),
 {
-    pub fn new(sink: T) -> MfmEncoder<T> {
-        MfmEncoder {
+    pub fn new(sink: T) -> Self {
+        Self {
             last_bit: Bit(false),
             sink,
         }
@@ -134,8 +140,8 @@ impl<T> MfmDecoder<T>
 where
     T: FnMut(MfmWord),
 {
-    pub fn new(sink: T) -> MfmDecoder<T> {
-        MfmDecoder {
+    pub fn new(sink: T) -> Self {
+        Self {
             sink,
             sync_buffer: 0,
             byte_buffer: 0,
@@ -173,6 +179,54 @@ where
             if self.shift_count == 16 {
                 self.shift_count = 0;
                 (self.sink)(MfmWord::Enc(self.byte_buffer));
+            }
+        }
+    }
+}
+
+pub struct MfmDataSeperator<T>
+where
+    T: FnMut(RawMfmWord),
+{
+    sink: T,
+    sync_buffer: u64,
+    word_buffer: u32,
+    in_sync: bool,
+    shift_count: u8,
+}
+
+impl<T> MfmDataSeperator<T>
+where
+    T: FnMut(RawMfmWord),
+{
+    pub fn new(sink: T) -> Self {
+        Self {
+            sink,
+            sync_buffer: 0,
+            word_buffer: 0,
+            in_sync: false,
+            shift_count: 0,
+        }
+    }
+
+    pub fn feed(&mut self, cell: Bit) {
+        self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
+        if (self.sync_buffer & 0xffffffff) == 0x44894489 {
+            self.in_sync = true;
+            self.shift_count = 0;
+            self.word_buffer = 0;
+            (self.sink)(RawMfmWord::SyncWord);
+            return;
+        }
+
+        if self.in_sync {
+            self.word_buffer <<= 1;
+            self.word_buffer |= if cell.0 { 1 } else { 0 };
+
+            self.shift_count += 1;
+            if self.shift_count == 32 {
+                self.shift_count = 0;
+                (self.sink)(RawMfmWord::Raw(self.word_buffer));
             }
         }
     }

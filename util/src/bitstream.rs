@@ -13,8 +13,8 @@ impl<T> BitStreamCollector<T>
 where
     T: FnMut(u8),
 {
-    pub fn new(sink: T) -> BitStreamCollector<T> {
-        BitStreamCollector {
+    pub fn new(sink: T) -> Self {
+        Self {
             sink,
             bit_i: 0,
             working_byte: 0,

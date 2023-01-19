@@ -23,8 +23,11 @@ const POSSIBLE_CYLINDER_COUNTS: [u32; 10] = [38, 39, 40, 41, 42, 78, 79, 80, 81,
 const POSSIBLE_SECTOR_COUNTS: [u32; 4] = [9, 10, 11, 18];
 
 fn calculate_floppy_geometry(number_bytes: u32) -> (u32, u32) {
-    for cylinders in POSSIBLE_CYLINDER_COUNTS {
-        for sectors in POSSIBLE_SECTOR_COUNTS {
+    // Iterate first over sectors and then over cylinders
+    // This favors 80 cyl/9 sec over 40 cyl/18 sec which could make sense
+    // but doesn't really...
+    for sectors in POSSIBLE_SECTOR_COUNTS {
+        for cylinders in POSSIBLE_CYLINDER_COUNTS {
             if number_bytes == cylinders * HEADS * BYTES_PER_SECTOR * sectors {
                 println!("Disk has {} cylinders and {} sectors!", cylinders, sectors);
                 return (cylinders, sectors);
@@ -209,7 +212,6 @@ fn generate_iso_track(
 
     for index in interleaving_table {
         let (idam_sector, sectordata) = sectors[index];
-        println!("Sector {}", idam_sector);
 
         // sector header
         generate_iso_sectorheader(
@@ -245,7 +247,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
 
     let geometry = IsoGeometry::new(sectors_per_track);
 
-    let (cellsize, density) = if sectors_per_track == 18 {
+    let (cellsize, density) = if sectors_per_track >= 18 {
         (84, Density::High)
     } else {
         (168, Density::SingleDouble)
