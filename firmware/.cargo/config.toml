@@ -16,7 +16,6 @@ rustflags = [
 
   # LLD (shipped with the Rust toolchain) is used as the default linker
   "-C", "link-arg=-Tlink.x",
-
   # if you run into problems with LLD switch to the GNU linker by commenting out
   # this line
   # "-C", "linker=arm-none-eabi-ld",
@@ -27,6 +26,10 @@ rustflags = [
   # "-C", "linker=arm-none-eabi-gcc",
   # "-C", "link-arg=-Wl,-Tlink.x",
   # "-C", "link-arg=-nostartfiles",
+
+  # uncomment for map file
+  # "-Clink-args=-Map=app.map"
+
 ]
 
 [build]

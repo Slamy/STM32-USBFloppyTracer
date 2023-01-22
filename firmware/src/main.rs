@@ -29,6 +29,7 @@ use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
+use track_raw::RawTrackHandler;
 use usb::UsbHandler;
 use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
@@ -47,7 +48,7 @@ use alloc_cortex_m::CortexMHeap;
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
 #[inline(always)]
-fn orange(s: bool) {
+pub fn orange(s: bool) {
     if s {
         unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << 13)) };
     } else {
@@ -188,7 +189,7 @@ fn main() -> ! {
         .device_class(0xff)
         .build();
 
-    let mut usb_handler = UsbHandler::new(serial, usb_device);
+    let usb_handler = UsbHandler::new(serial, usb_device);
 
     cortex_m::interrupt::free(|cs| {
         DEBUG_LED_GREEN
@@ -220,13 +221,20 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(in_index_int);
     }
 
-    let mut next_command: Option<usb::Command> = None;
-
-    let mut raw_track_writer = track_raw::RawTrackHandler {
+    let raw_track_writer = track_raw::RawTrackHandler {
         read_cons,
         write_prod_cell: RefCell::new(write_prod),
-        track_data_to_write: None,
     };
+
+    mainloop(usb_handler, raw_track_writer, in_write_protect);
+}
+
+fn mainloop(
+    mut usb_handler: UsbHandler,
+    mut raw_track_writer: RawTrackHandler,
+    in_write_protect: Pin<'B', 14>,
+) -> ! {
+    let mut next_command: Option<usb::Command> = None;
 
     loop {
         usb_handler.handle();
@@ -252,7 +260,9 @@ fn main() -> ! {
                 let result = cm.block_on();
                 if let Err(err) = result {
                     let str_response = format!("Fail {:?}", err);
-                    usb_handler.response(&str_response);
+                    if let Err(_) = usb_handler.response(&str_response) {
+                        rprintln!("Can't contact host. But that's ok...");
+                    }
                 }
                 // TODO use result properly
             }
@@ -265,9 +275,14 @@ fn main() -> ! {
                 if in_write_protect.is_low() {
                     rprintln!("Write Protection is active!");
 
-                    usb_handler.response("WriteProtected");
+                    usb_handler
+                        .response("WriteProtected")
+                        .expect("Linux side will fail!");
                 } else {
-                    usb_handler.response("GotCmd");
+                    if let Err(_) = usb_handler.response("GotCmd") {
+                        rprintln!("Can't contact host... linux side will fail probably");
+                    }
+
                     cortex_m::interrupt::free(|cs| {
                         interrupts::FLOPPY_CONTROL
                             .borrow(cs)
@@ -277,11 +292,11 @@ fn main() -> ! {
                             .spin_motor();
                     });
 
-                    raw_track_writer.track_data_to_write = Some(raw_cell_data);
                     let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
                         track,
                         first_significance_offset,
                         write_precompensation,
+                        raw_cell_data,
                     ));
                     let mut cm = Cassette::new(write_verify_fut);
 
@@ -309,7 +324,9 @@ fn main() -> ! {
                         ),
                     };
 
-                    usb_handler.response(&str_response);
+                    if let Err(_) = usb_handler.response(&str_response) {
+                        rprintln!("Can't contact host. But that's ok...");
+                    }
                 }
             }
             _ => {}

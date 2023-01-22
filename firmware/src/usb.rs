@@ -62,7 +62,7 @@ impl UsbHandler<'_> {
         }
     }
 
-    pub fn response(&mut self, text: &str) {
+    pub fn response(&mut self, text: &str) -> Result<(), ()> {
         assert!(text.len() < 60);
 
         // TODO find better solution!
@@ -70,7 +70,7 @@ impl UsbHandler<'_> {
             let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
             match serial.write_packet(text.as_bytes()) {
                 Ok(len) if len > 0 => {
-                    return; // All went well
+                    return Ok(()); // All went well
                 }
                 _ => {
                     //rprintln!("Response has failed!");
@@ -78,7 +78,7 @@ impl UsbHandler<'_> {
             }
             self.handle();
         }
-        panic!("Unable to response!");
+        Err(())
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<usize, UsbError> {

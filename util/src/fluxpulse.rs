@@ -137,13 +137,6 @@ where
     }
 
     pub fn feed(&mut self, mut duration: PulseDuration) {
-        if duration.0 < self.cell_duration / 2 {
-            // println!("Pulse was too short!");
-            (self.sink)(Bit(false));
-            (self.sink)(Bit(false));
-            (self.sink)(Bit(false));
-        }
-
         while duration.0 > (self.cell_duration + self.cell_duration / 2) {
             duration.0 -= self.cell_duration;
             (self.sink)(Bit(false));

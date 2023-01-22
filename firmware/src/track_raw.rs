@@ -1,4 +1,4 @@
-use core::{cell::RefCell, cmp::max, future::Future, task::Poll};
+use core::{cell::RefCell, cmp::max, future::Future, mem, task::Poll};
 
 use alloc::{collections::VecDeque, vec::Vec};
 use cassette::futures::poll_fn;
@@ -11,7 +11,7 @@ use util::{
 use crate::{
     interrupts::{
         self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_transmit,
-        FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
+        flux_reader_stop_reception, FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
     orange, rprintln,
     usb::UsbHandler,
@@ -20,7 +20,6 @@ use crate::{
 pub struct RawTrackHandler {
     pub read_cons: Consumer<'static, u32, 512>,
     pub write_prod_cell: RefCell<Producer<'static, u32, 128>>,
-    pub track_data_to_write: Option<RawCellData>,
 }
 
 #[derive(Debug)]
@@ -61,6 +60,7 @@ impl RawTrackHandler {
         track: Track,
         first_significance_offset: usize,
         write_precompensation: PulseDuration,
+        mut raw_cell_data: RawCellData,
     ) -> Result<(u8, u8, PulseDuration, PulseDuration), (u8, u8)> {
         async_select_and_wait_for_track(track).await;
 
@@ -75,14 +75,19 @@ impl RawTrackHandler {
                 first_significance_offset
             );
             write_operations += 1;
-            if matches!(self.write_track(write_precompensation).await, Err(())) {
-                return Err((write_operations, verify_operations));
-            }
+
+            raw_cell_data = self
+                .write_track(write_precompensation, raw_cell_data)
+                .await
+                .or_else(|_| Err((write_operations, verify_operations)))?;
 
             for read_try in 0..3 {
                 verify_operations += 1;
 
-                let verify_result = self.verify_track(first_significance_offset).await;
+                let verify_result = self
+                    .verify_track(first_significance_offset, raw_cell_data)
+                    .await;
+
                 match verify_result {
                     Ok(max_err) => {
                         return Ok((
@@ -92,28 +97,31 @@ impl RawTrackHandler {
                             write_precompensation,
                         ));
                     }
-                    Err(RawTrackError::DataNotEqual) => {
+                    Err((RawTrackError::DataNotEqual, track)) => {
                         // We shall do nothing. Maybe it was a fluke?
                         // Just read again...
+                        raw_cell_data = track;
                     }
-                    Err(RawTrackError::NoCrossCorrelation) if read_try == 0 => {
+                    Err((RawTrackError::NoCrossCorrelation, track)) if read_try == 0 => {
                         // This happens sometimes. Nothing to worry about.
                         // This usually occurs with longer tracks as the read head
                         // must recalibrate.
                         // Just read again...
+                        raw_cell_data = track;
                     }
-                    Err(RawTrackError::NoCrossCorrelation) => {
+                    Err((RawTrackError::NoCrossCorrelation, track)) => {
                         // Ok now this is bad.
                         // Abort reading and write again. This won't get any better.
                         // This can occur if the write process overwrites the start of the track.
                         // A fluctuation in the rotation speed causes this.
+                        raw_cell_data = track;
                         break;
                     }
-                    Err(RawTrackError::NoIncomingData) => {
+                    Err((RawTrackError::NoIncomingData, _track)) => {
                         // Abort. Drive not responding
                         return Err((write_operations, verify_operations));
                     }
-                    Err(RawTrackError::NoIndexPulse) => {
+                    Err((RawTrackError::NoIndexPulse, _track)) => {
                         // Abort. Drive not responding
                         return Err((write_operations, verify_operations));
                     }
@@ -123,7 +131,11 @@ impl RawTrackHandler {
         Err((write_operations, verify_operations))
     }
 
-    async fn write_track(&mut self, write_precompensation: PulseDuration) -> Result<(), ()> {
+    async fn write_track(
+        &mut self,
+        write_precompensation: PulseDuration,
+        track_data_to_write: RawCellData,
+    ) -> Result<RawCellData, ()> {
         // keep it spinning!
         cortex_m::interrupt::free(|cs| {
             interrupts::FLUX_WRITER
@@ -142,7 +154,6 @@ impl RawTrackHandler {
         });
 
         // prefill output buffer
-        let track_data_to_write = self.track_data_to_write.take().unwrap();
         let mut parts = track_data_to_write.borrow_parts().iter();
         let part = parts.next().unwrap();
 
@@ -209,8 +220,7 @@ impl RawTrackHandler {
 
         write_prod_fpg.flush();
 
-        self.track_data_to_write = Some(track_data_to_write);
-        Ok(())
+        Ok(track_data_to_write)
     }
 
     pub async fn read_track(
@@ -255,7 +265,6 @@ impl RawTrackHandler {
                     .start_reception(cs);
             });
         }
-        orange(true);
         let mut collect_buffer: Vec<u8> = Vec::with_capacity(64);
         let mut usb_frames_transferred = 0;
         let mut usb_frames_collected = 0;
@@ -271,11 +280,7 @@ impl RawTrackHandler {
         // For yet unknown reasons the first two are garbage.
         // TODO Are they coming from the DMA?
         if self.async_read_flux().await.is_none() {
-            cortex_m::interrupt::free(|cs| {
-                let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                let y2 = fr1.as_mut().unwrap();
-                y2.stop_reception(cs);
-            });
+            flux_reader_stop_reception();
             return Err(RawTrackError::NoIncomingData);
         }
         self.async_read_flux().await;
@@ -295,54 +300,50 @@ impl RawTrackHandler {
                 usb_handler.handle();
             }
 
-            if let Some(pulse) = self.read_cons.dequeue() {
-                timeout = 0;
-                duration_yet_recorded += pulse;
-                // TODO magic number
-                let mut reduced_pulse = pulse >> 3;
+            // Polling the USB buffers just takes too much time.
+            // We shall at least process 5 incoming pulses until we check
+            // USB again. With HD disks there is just not enough time.
+            for _ in 0..5 {
+                if let Some(pulse) = self.read_cons.dequeue() {
+                    timeout = 0;
+                    duration_yet_recorded += pulse;
+                    // TODO magic number
+                    let mut reduced_pulse = pulse >> 3;
 
-                if pulse & 0b100 != 0 {
-                    //round up
-                    reduced_pulse += 1;
-                }
+                    if pulse & 0b100 != 0 {
+                        //round up
+                        reduced_pulse += 1;
+                    }
 
-                if reduced_pulse > 0xff {
-                    reduced_pulse = 0xff;
-                }
+                    if reduced_pulse > 0xff {
+                        reduced_pulse = 0xff;
+                    }
 
-                collect_buffer.push(reduced_pulse as u8);
+                    collect_buffer.push(reduced_pulse as u8);
 
-                if collect_buffer.len() == 64 {
-                    let new_buffer: Vec<u8> = Vec::with_capacity(64);
-                    let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
-                    buffers.push_back(old_buffer);
+                    if collect_buffer.len() == 64 {
+                        let new_buffer: Vec<u8> = Vec::with_capacity(64);
+                        let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
+                        buffers.push_back(old_buffer);
 
-                    usb_frames_collected += 1;
+                        usb_frames_collected += 1;
 
-                    if duration_yet_recorded >= duration_to_record {
-                        required_duration_was_recorded = true;
-                        cortex_m::interrupt::free(|cs| {
-                            let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                            let y2 = fr1.as_mut().unwrap();
-                            y2.stop_reception(cs);
-                        });
-                        orange(false);
+                        if duration_yet_recorded >= duration_to_record {
+                            required_duration_was_recorded = true;
+                            flux_reader_stop_reception();
+                            // Throw away remaining data
+                            while let Some(_) = self.read_cons.dequeue() {}
+                        }
+                    }
+                } else {
+                    timeout += 1;
+                    // TODO magic number
+                    if timeout == 0x800_000 {
+                        flux_reader_stop_reception();
                         // Throw away remaining data
                         while let Some(_) = self.read_cons.dequeue() {}
+                        return Err(RawTrackError::NoIncomingData);
                     }
-                }
-            } else {
-                timeout += 1;
-                // TODO magic number
-                if timeout == 0x800_000 {
-                    cortex_m::interrupt::free(|cs| {
-                        let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                        let y2 = fr1.as_mut().unwrap();
-                        y2.stop_reception(cs);
-                    });
-                    // Throw away remaining data
-                    while let Some(_) = self.read_cons.dequeue() {}
-                    return Err(RawTrackError::NoIncomingData);
                 }
             }
         }
@@ -373,7 +374,8 @@ impl RawTrackHandler {
     async fn verify_track(
         &mut self,
         first_significance_offset: usize,
-    ) -> Result<PulseDuration, RawTrackError> {
+        track_data_to_write: RawCellData,
+    ) -> Result<PulseDuration, (RawTrackError, RawCellData)> {
         // Size of sliding window, containing the significant data we use, trying
         // to match the data we read back against the groundtruth data we thought
         // to have written before
@@ -395,9 +397,6 @@ impl RawTrackHandler {
 
         // Throw away all data in the queue before we read real data
         while let Some(_) = self.read_cons.dequeue() {}
-
-        // grab the ownership inside this async function to avoid issues with borrowing
-        let track_data_to_write = self.track_data_to_write.take().unwrap();
 
         // we might have multiple different cell densities. grab the first one
         let mut parts = track_data_to_write.borrow_parts().iter();
@@ -451,7 +450,7 @@ impl RawTrackHandler {
         }
 
         // reserve some memory for reading flux data from disk
-        let mut read_mfm_flux_data_queue: VecDeque<PulseDuration> = VecDeque::with_capacity(1000);
+        let mut read_mfm_flux_data_queue: VecDeque<PulseDuration> = VecDeque::with_capacity(2000);
 
         // start reception of track on next index pulse
         cortex_m::interrupt::free(|cs| {
@@ -459,8 +458,7 @@ impl RawTrackHandler {
         });
 
         if let Err(_) = async_wait_for_index().await {
-            self.track_data_to_write = Some(track_data_to_write);
-            return Err(RawTrackError::NoIndexPulse);
+            return Err((RawTrackError::NoIndexPulse, track_data_to_write));
         };
 
         // throw away first pulses before the point of significance
@@ -471,13 +469,8 @@ impl RawTrackHandler {
                 let pulse = self.async_read_flux().await;
                 if pulse.is_none() {
                     rprintln!("Timeout1");
-                    cortex_m::interrupt::free(|cs| {
-                        let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                        let y2 = fr1.as_mut().unwrap();
-                        y2.stop_reception(cs);
-                    });
-                    self.track_data_to_write = Some(track_data_to_write);
-                    return Err(RawTrackError::NoIncomingData);
+                    flux_reader_stop_reception();
+                    return Err((RawTrackError::NoIncomingData, track_data_to_write));
                 };
 
                 pulses_to_throw_away -= 1;
@@ -490,14 +483,8 @@ impl RawTrackHandler {
                 read_mfm_flux_data_queue.push_back(PulseDuration(pulse))
             } else {
                 rprintln!("Timeout2");
-
-                cortex_m::interrupt::free(|cs| {
-                    let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                    let y2 = fr1.as_mut().unwrap();
-                    y2.stop_reception(cs);
-                });
-                self.track_data_to_write = Some(track_data_to_write);
-                return Err(RawTrackError::NoIncomingData);
+                flux_reader_stop_reception();
+                return Err((RawTrackError::NoIncomingData, track_data_to_write));
             };
         }
 
@@ -508,14 +495,8 @@ impl RawTrackHandler {
         for read_window_index in 0..READ_DATA_WINDOW_SIZE {
             if read_mfm_flux_data_queue.len() < COMPARE_WINDOW_SIZE {
                 rprintln!("Unable to cross correlate!");
-
-                cortex_m::interrupt::free(|cs| {
-                    let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                    let y2 = fr1.as_mut().unwrap();
-                    y2.stop_reception(cs);
-                });
-                self.track_data_to_write = Some(track_data_to_write);
-                return Err(RawTrackError::NoCrossCorrelation);
+                flux_reader_stop_reception();
+                return Err((RawTrackError::NoCrossCorrelation, track_data_to_write));
             }
             equal = read_mfm_flux_data_queue
                 .range(0..COMPARE_WINDOW_SIZE)
@@ -536,16 +517,7 @@ impl RawTrackHandler {
         let mut maximum_diff = 0;
         let mut successful_compares = 0;
 
-        loop {
-            // read more data from the incoming flux stream and
-            // put it into our compare buffer
-            if read_mfm_flux_data_queue.len() < 30 {
-                if let Some(pulse) = self.read_cons.dequeue() {
-                    read_mfm_flux_data_queue.push_back(PulseDuration(pulse as i32))
-                }
-            }
-
-            // generate more pulse data from the groundtruth data
+        let mut generate_groundtruth = || {
             if flux_data_to_write_queue.borrow().len() < 30 {
                 if let Some(val) = track_data_to_write_iter.next() {
                     to_bit_stream(*val, |bit| flux_data_to_write_fpg.feed(bit))
@@ -559,52 +531,85 @@ impl RawTrackHandler {
                     }
                 }
             }
+        };
 
-            // we have no more data to compare too.
+        // we first need to get rid of the read_mfm_flux_data_queue before we read live data.
+        // It slows down our processing if we continue to use this data structure
+        loop {
+            generate_groundtruth();
+
+            if read_mfm_flux_data_queue.is_empty() {
+                break;
+            }
+
+            let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+            let readback = read_mfm_flux_data_queue.pop_front().unwrap();
+
+            if reference.0 > part.cell_size.0 * 10 {
+                // Non Flux Reversal Detected. Some cleanup needed.
+                // TODO Is this really the best approach to fix this?
+                // It is also pretty random. Sometimes it doesn't work at all.
+                flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+            } else if !reference.similar(&readback, similarity_treshold) {
+                orange(true);
+                flux_reader_stop_reception();
+                rprintln!(
+                    "{} != {}, successful_compares until compare fail: {}",
+                    reference.0,
+                    readback.0,
+                    successful_compares
+                );
+                orange(false);
+
+                return Err((RawTrackError::DataNotEqual, track_data_to_write));
+            } else {
+                maximum_diff = max(maximum_diff, (reference.0).abs_diff(readback.0));
+            }
+            successful_compares += 1;
+        }
+
+        mem::drop(read_mfm_flux_data_queue);
+
+        // we got rid of the queue. Now do the same with live data until everything was verified.
+        loop {
+            generate_groundtruth();
+
             if flux_data_to_write_queue.borrow().is_empty() {
                 break; // Yay! All is verified.
             }
 
-            if !read_mfm_flux_data_queue.is_empty() && !flux_data_to_write_queue.borrow().is_empty()
-            {
+            if let Some(readback) = self.read_cons.dequeue() {
                 let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
-                let readback = read_mfm_flux_data_queue.pop_front().unwrap();
 
+                // TODO Copy pasta
                 if reference.0 > part.cell_size.0 * 10 {
                     // Non Flux Reversal Detected. Some cleanup needed.
                     // TODO Is this really the best approach to fix this?
                     // It is also pretty random. Sometimes it doesn't work at all.
                     flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
-                } else if !reference.similar(&readback, similarity_treshold) {
+                } else if !reference.similar(&PulseDuration(readback as i32), similarity_treshold) {
+                    orange(true);
+                    flux_reader_stop_reception();
                     rprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
                         reference.0,
-                        readback.0,
+                        readback,
                         successful_compares
                     );
+                    orange(false);
 
-                    cortex_m::interrupt::free(|cs| {
-                        let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-                        let y2 = fr1.as_mut().unwrap();
-                        y2.stop_reception(cs);
-                    });
-                    self.track_data_to_write = Some(track_data_to_write);
-
-                    return Err(RawTrackError::DataNotEqual);
+                    return Err((RawTrackError::DataNotEqual, track_data_to_write));
                 } else {
-                    maximum_diff = max(maximum_diff, (reference.0).abs_diff(readback.0));
+                    maximum_diff = max(maximum_diff, (reference.0).abs_diff(readback as i32));
                 }
                 successful_compares += 1;
+            } else {
+                // We got CPU power to spare. Return from coroutine
+                cassette::yield_now().await;
             }
         }
 
-        // stop the reception to avoid DMA overflows
-        cortex_m::interrupt::free(|cs| {
-            let mut fr1 = FLUX_READER.borrow(cs).borrow_mut();
-            let y2 = fr1.as_mut().unwrap();
-            y2.stop_reception(cs);
-        });
-
+        flux_reader_stop_reception();
         rprintln!(
             "Verified {} pulses, Max error {} / {}, window match offset {}",
             successful_compares,

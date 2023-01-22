@@ -23,6 +23,17 @@ pub static FLUX_READER: Mutex<RefCell<Option<FluxReader>>> = Mutex::new(RefCell:
 pub static FLOPPY_CONTROL: Mutex<RefCell<Option<FloppyControl>>> = Mutex::new(RefCell::new(None));
 pub static IN_INDEX: Mutex<RefCell<Option<Pin<'A', 3>>>> = Mutex::new(RefCell::new(None));
 
+pub fn flux_reader_stop_reception() {
+    cortex_m::interrupt::free(|cs| {
+        FLUX_READER
+            .borrow(cs)
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .stop_reception(cs);
+    });
+}
+
 pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()> {
     cortex_m::interrupt::free(|cs| {
         FLOPPY_CONTROL
