@@ -1,6 +1,6 @@
 # STM32-USBFloppyTracer
 
-Raw Floppy Writer using STM32F4Discovery board. Supports Amiga and C64 Images. Even copy protected!
+Raw Floppy Writer using the STM32F407. Supports Amiga and C64 Images. Even copy protected!
 This is a remake of my [older project](https://github.com/Slamy/SlamySTM32Floppy) as I wanted to learn Rust and needed a project to do so.
 Also I don't like my old code base any more and wanted to have a cleaner software architecture.
 
@@ -48,9 +48,17 @@ There is no need to resolder the old setup.
 
 * Reading of disk images
 
-## How to connect the STM32F4Discovery board to the disk drive
+## How to connect the STM32F407 board to the disk drive
 
-[Pinout diagram of STM32F4Discovery board with floppy signals](doc/pinout.png)
+At the moment two boards are known to work.
+The bigger STM32F4Discovery was used to start this project.
+
+[Pinout diagram of STM32F4Discovery board with floppy signals](doc/pinout/discovery.png)
+
+I've recently switched over to the smaller Diymore STM32F4 board.
+The pin assigment hasn't changed to keep the software compatible.
+
+[Pinout diagram of Diymore STM32F4 board with floppy signals](doc/pinout/diymore.png)
 
 ## How to build and flash the firmware
 
