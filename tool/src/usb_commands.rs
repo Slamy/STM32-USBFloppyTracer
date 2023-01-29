@@ -1,7 +1,9 @@
 use std::{slice::Iter, time::Duration};
 
 use rusb::{Context, DeviceHandle};
-use util::{duration_of_rotation_as_stm_tim_raw, Density, DriveSelectState, DRIVE_3_5_RPM};
+use util::{
+    duration_of_rotation_as_stm_tim_raw, Density, DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM,
+};
 
 use crate::rawtrack::RawTrack;
 
@@ -62,7 +64,7 @@ pub fn read_raw_track(
     let mut command_buf = [0u8; 64];
     let mut writer = command_buf.chunks_mut(4);
 
-    let duration_to_record: usize = duration_of_rotation_as_stm_tim_raw(DRIVE_3_5_RPM) * 110 / 100;
+    let duration_to_record: usize = duration_of_rotation_as_stm_tim_raw(DRIVE_5_25_RPM) * 110 / 100;
     let wait_for_index = if wait_for_index { 1 << 9 } else { 0 };
 
     let header = vec![
@@ -146,7 +148,6 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
             | (track.head << 8)
             | non_flux_reversal_mask
             | (track.write_precompensation << 16),
-        track.first_significane_offset.unwrap() as u32,
         track.densitymap.len() as u32,
     ];
 

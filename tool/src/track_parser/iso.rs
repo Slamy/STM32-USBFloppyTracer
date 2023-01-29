@@ -117,6 +117,8 @@ impl TrackParser for IsoTrackParser {
                                 // Exit it after we got all expected sectors.
                                 break;
                             }
+                        } else {
+                            println!("CRC Error Sector {}", sector_header[2]);
                         }
                     }
                     _ => {}

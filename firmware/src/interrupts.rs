@@ -119,6 +119,35 @@ pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
     })
 }
 
+pub fn async_wait_for_receive() -> impl Future<Output = Result<(), ()>> {
+    poll_fn(|_| {
+        let (transmission_active, motor_spinning) = cortex_m::interrupt::free(|cs| {
+            (
+                FLUX_READER
+                    .borrow(cs)
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .transmission_active(),
+                FLOPPY_CONTROL
+                    .borrow(cs)
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .is_spinning(),
+            )
+        });
+
+        if transmission_active {
+            Poll::Ready(Ok(()))
+        } else if motor_spinning == false {
+            Poll::Ready(Err(()))
+        } else {
+            Poll::Pending
+        }
+    })
+}
+
 #[interrupt]
 fn DMA1_STREAM1() {
     cortex_m::interrupt::free(|cs| {

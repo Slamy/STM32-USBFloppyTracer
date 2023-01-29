@@ -20,7 +20,7 @@ const HEADS: u32 = 2;
 const BYTES_PER_SECTOR: u32 = 512;
 
 const POSSIBLE_CYLINDER_COUNTS: [u32; 10] = [38, 39, 40, 41, 42, 78, 79, 80, 81, 82];
-const POSSIBLE_SECTOR_COUNTS: [u32; 4] = [9, 10, 11, 18];
+const POSSIBLE_SECTOR_COUNTS: [u32; 5] = [9, 10, 11, 15, 18];
 
 fn calculate_floppy_geometry(number_bytes: u32) -> (u32, u32) {
     // Iterate first over sectors and then over cylinders
@@ -247,7 +247,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
 
     let geometry = IsoGeometry::new(sectors_per_track);
 
-    let (cellsize, density) = if sectors_per_track >= 18 {
+    let (cellsize, density) = if sectors_per_track >= 15 {
         (84, Density::High)
     } else {
         (168, Density::SingleDouble)

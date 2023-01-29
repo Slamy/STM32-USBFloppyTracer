@@ -64,7 +64,7 @@ pub fn read_tracks_to_diskimage(
         "adf" => Box::new(AmigaTrackParser::new(util::Density::SingleDouble)),
         "d64" => Box::new(C64TrackParser::new()),
         "st" => Box::new(IsoTrackParser::new(9)),
-        "img" => Box::new(IsoTrackParser::new(18)),
+        "img" => Box::new(IsoTrackParser::new(15)),
         _ => panic!("{} is an unknown file extension!", file_extension),
     };
 

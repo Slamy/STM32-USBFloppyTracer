@@ -169,11 +169,8 @@ fn main() -> ! {
         *INDEX_SIM.borrow(cs).borrow_mut() = Some(index_sim);
     });
 
-    let reading_buffer: &mut Queue<u32, 512> =
-        cortex_m::singleton!(: Queue<u32,512> = Queue::new()).unwrap();
-
-    let writing_buffer: &mut Queue<u32, 128> =
-        cortex_m::singleton!(: Queue<u32,128> = Queue::new()).unwrap();
+    let reading_buffer = cortex_m::singleton!(: Queue<u32,512> = Queue::new()).unwrap();
+    let writing_buffer = cortex_m::singleton!(: Queue<u32,128> = Queue::new()).unwrap();
 
     let (read_prod, read_cons) = reading_buffer.split();
     let (write_prod, write_cons) = writing_buffer.split();
@@ -269,7 +266,6 @@ fn mainloop(
             Some(usb::Command::WriteVerifyRawTrack {
                 track,
                 raw_cell_data,
-                first_significance_offset,
                 write_precompensation,
             }) => {
                 if in_write_protect.is_low() {
@@ -294,7 +290,6 @@ fn mainloop(
 
                     let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
                         track,
-                        first_significance_offset,
                         write_precompensation,
                         raw_cell_data,
                     ));

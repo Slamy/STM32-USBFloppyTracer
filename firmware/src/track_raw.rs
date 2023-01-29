@@ -58,7 +58,6 @@ impl RawTrackHandler {
     pub async fn write_and_verify(
         &mut self,
         track: Track,
-        first_significance_offset: usize,
         write_precompensation: PulseDuration,
         mut raw_cell_data: RawCellData,
     ) -> Result<(u8, u8, PulseDuration, PulseDuration), (u8, u8)> {
@@ -69,10 +68,9 @@ impl RawTrackHandler {
 
         for _ in 0..5 {
             rprintln!(
-                "Write track at cyl:{} head:{} sigoff:{}",
+                "Write track at cyl:{} head:{}",
                 track.cylinder.0,
                 track.head.0,
-                first_significance_offset
             );
             write_operations += 1;
 
@@ -84,9 +82,7 @@ impl RawTrackHandler {
             for read_try in 0..3 {
                 verify_operations += 1;
 
-                let verify_result = self
-                    .verify_track(first_significance_offset, raw_cell_data)
-                    .await;
+                let verify_result = self.verify_track(raw_cell_data).await;
 
                 match verify_result {
                     Ok(max_err) => {
@@ -182,6 +178,15 @@ impl RawTrackHandler {
             let mfm_byte = *track_data_iter.next().unwrap();
             to_bit_stream(mfm_byte, |bit| write_prod_fpg.feed(bit));
         }
+
+        cortex_m::interrupt::free(|cs| {
+            interrupts::FLUX_WRITER
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .prepare_transmit(cs);
+        });
 
         // start transmit on index pulse
         cortex_m::interrupt::free(|cs| {
@@ -373,7 +378,6 @@ impl RawTrackHandler {
 
     async fn verify_track(
         &mut self,
-        first_significance_offset: usize,
         track_data_to_write: RawCellData,
     ) -> Result<PulseDuration, (RawTrackError, RawCellData)> {
         // Size of sliding window, containing the significant data we use, trying
@@ -383,7 +387,7 @@ impl RawTrackHandler {
 
         // We record this amount of pulses to slide the COMPARE_WINDOW on
         // to perfom cross correlation
-        const READ_DATA_WINDOW_SIZE: usize = 90;
+        const READ_DATA_WINDOW_SIZE: usize = 200;
 
         // keep the motor spinning
         cortex_m::interrupt::free(|cs| {
@@ -408,9 +412,8 @@ impl RawTrackHandler {
         let similarity_treshold = part.cell_size.0 as i32 * 35 / 100;
 
         // prepare compare data around the first significant position to compare the data we read back to
-        let flux_data_to_write_queue: RefCell<VecDeque<PulseDuration>> = RefCell::new(
-            VecDeque::with_capacity(first_significance_offset + COMPARE_WINDOW_SIZE * 2),
-        );
+        let flux_data_to_write_queue: RefCell<VecDeque<PulseDuration>> =
+            RefCell::new(VecDeque::with_capacity(COMPARE_WINDOW_SIZE * 8));
         let mut flux_data_to_write_fpg = FluxPulseGenerator::new(
             |f| flux_data_to_write_queue.borrow_mut().push_back(f),
             part.cell_size.0 as u32,
@@ -425,32 +428,18 @@ impl RawTrackHandler {
         }
 
         let mut track_data_to_write_iter = part.cells.iter();
-        while flux_data_to_write_queue.borrow().len()
-            < first_significance_offset + COMPARE_WINDOW_SIZE
-        {
-            to_bit_stream(
-                *track_data_to_write_iter.next().unwrap_or_else(|| {
-                    panic!("Not filled {}", flux_data_to_write_queue.borrow().len())
-                }),
-                |bit| flux_data_to_write_fpg.feed(bit),
-            )
-        }
 
-        // now drain the generated data until we are left with only the compare window
-        // for this, we usually need at least have more data than half of the compare window.
-        if first_significance_offset > COMPARE_WINDOW_SIZE / 2 {
-            flux_data_to_write_queue
-                .borrow_mut()
-                .drain(0..first_significance_offset - COMPARE_WINDOW_SIZE / 2);
-        } else {
-            // For Apydia we have to do a different approach.
-            // It is very risky to do this as we reduce the time to settle on incoming data
-            // But if there is no other option, we must hope that the index pulse is exact...
-            flux_data_to_write_queue.borrow_mut().drain(0..2);
-        }
-
-        // reserve some memory for reading flux data from disk
-        let mut read_mfm_flux_data_queue: VecDeque<PulseDuration> = VecDeque::with_capacity(2000);
+        let mut generate_ground_truth = || {
+            while flux_data_to_write_queue.borrow().len() < COMPARE_WINDOW_SIZE {
+                to_bit_stream(
+                    *track_data_to_write_iter.next().unwrap_or_else(|| {
+                        panic!("Not filled {}", flux_data_to_write_queue.borrow().len())
+                    }),
+                    |bit| flux_data_to_write_fpg.feed(bit),
+                )
+            }
+        };
+        generate_ground_truth();
 
         // start reception of track on next index pulse
         cortex_m::interrupt::free(|cs| {
@@ -461,22 +450,33 @@ impl RawTrackHandler {
             return Err((RawTrackError::NoIndexPulse, track_data_to_write));
         };
 
-        // throw away first pulses before the point of significance
-        // as we can't verify those pulses.
-        if first_significance_offset > 10 {
-            let mut pulses_to_throw_away = first_significance_offset - 10;
-            while pulses_to_throw_away > 0 {
-                let pulse = self.async_read_flux().await;
-                if pulse.is_none() {
-                    rprintln!("Timeout1");
-                    flux_reader_stop_reception();
-                    return Err((RawTrackError::NoIncomingData, track_data_to_write));
-                };
-
-                pulses_to_throw_away -= 1;
-            }
+        // remove the first 6 pulses from the groundtruth data to better
+        // allow matching. Those 6 pulses are not verified but I guess that this is ok.
+        for _ in 0..5 {
+            flux_data_to_write_queue.borrow_mut().pop_front();
         }
+        let last = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+        let mut removed = 6;
 
+        // avoid lack of entropy by removing repeated data
+        while flux_data_to_write_queue.borrow_mut().front().unwrap().0 == last.0 {
+            removed += 1;
+            flux_data_to_write_queue.borrow_mut().pop_front();
+
+            // discard incoming value.
+            if self.async_read_flux().await.is_none() {
+                rprintln!("Timeout2");
+                flux_reader_stop_reception();
+                return Err((RawTrackError::NoIncomingData, track_data_to_write));
+            };
+
+            generate_ground_truth();
+        }
+        rprintln!("Remove repeated: {}", removed);
+        generate_ground_truth();
+        // reserve some memory for reading flux data from disk
+        let mut read_mfm_flux_data_queue: VecDeque<PulseDuration> =
+            VecDeque::with_capacity(READ_DATA_WINDOW_SIZE * 2);
         // now record something slightly larger than the "significant window"
         while read_mfm_flux_data_queue.len() < READ_DATA_WINDOW_SIZE {
             if let Some(pulse) = self.async_read_flux().await {

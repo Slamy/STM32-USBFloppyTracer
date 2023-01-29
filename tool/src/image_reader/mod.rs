@@ -135,7 +135,6 @@ mod tests {
 
             track.assert_fits_into_rotation(rpm);
             track.check_writability();
-            track.get_significance_offset();
 
             context.consume(u32::to_le_bytes(track.cylinder));
             context.consume(u32::to_le_bytes(track.head));

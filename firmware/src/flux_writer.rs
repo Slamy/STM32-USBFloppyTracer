@@ -109,7 +109,7 @@ impl FluxWriter {
         self.tim4.cr1.read().cen().is_enabled()
     }
 
-    pub fn start_transmit(&mut self, cs: &CriticalSection) {
+    pub fn prepare_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
         assert!(dma_stream.cr.read().en().is_enabled() == false);
@@ -169,8 +169,15 @@ impl FluxWriter {
             });
         self.tim4.ccmr2_output().modify(|_, w| w.oc3m().pwm_mode1()); //select pwm mode
 
-        self.tim4.cnt.write(|w| w.cnt().bits(0)); // reset count to 0
-        self.tim4.arr.write(|w| w.arr().bits(400)); // count to 200 and reset
+        self.tim4.sr.write(|w| w.uif().clear()); // Clear interrupt
+
+        self.tim4.cnt.write(|w| w.cnt().bits(800)); // reset count to 0
+        self.tim4.arr.write(|w| w.arr().bits(800)); // count to 200 and reset
+    }
+
+    pub fn start_transmit(&mut self, cs: &CriticalSection) {
+        let dma_stream = &self.dma1.borrow(cs).st[6];
+
         self.write_gate.set_low();
 
         dma_stream.cr.modify(|_, w| w.en().enabled()); // enable dma

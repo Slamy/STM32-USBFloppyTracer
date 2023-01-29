@@ -156,10 +156,6 @@ fn main() {
             image.filter_tracks(filter);
         }
 
-        for track in image.tracks.iter_mut() {
-            track.get_significance_offset();
-        }
-
         if let Some(debug_text_file) = cli.debug_text_file {
             write_debug_text_file(&debug_text_file, image);
             exit(0);
@@ -172,8 +168,6 @@ fn main() {
 
         let mut already_warned_about_wprecomp_fail = false;
         for track in image.tracks.iter_mut() {
-            track.get_significance_offset();
-
             // only alter the write precompensation if no calibration is performed!
             if let Some(wprecomp_db) = &wprecomp_db && !cli.wprecomp_calib {
             track.write_precompensation = wprecomp_db.calculate_write_precompensation(
@@ -225,7 +219,7 @@ fn main() {
         configure_device(
             &usb_handles,
             select_drive,
-            util::Density::SingleDouble,
+            util::Density::High,
             index_sim_frequency,
         );
 

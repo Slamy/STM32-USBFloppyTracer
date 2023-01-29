@@ -18,7 +18,6 @@ pub enum Command {
     WriteVerifyRawTrack {
         track: Track,
         raw_cell_data: RawCellData,
-        first_significance_offset: usize,
         write_precompensation: PulseDuration,
     },
     ReadTrack {
@@ -38,7 +37,6 @@ pub struct UsbHandler<'a> {
     cylinder: u32,
     head: u32,
     has_non_flux_reversal_area: bool,
-    first_significance_offset: u32,
     write_precompensation: PulseDuration,
 }
 
@@ -57,7 +55,6 @@ impl UsbHandler<'_> {
             cylinder: 0,
             head: 0,
             has_non_flux_reversal_area: false,
-            first_significance_offset: 0,
             write_precompensation: PulseDuration(0),
         }
     }
@@ -116,9 +113,6 @@ impl UsbHandler<'_> {
                             self.has_non_flux_reversal_area = (packed_configuration & 0x200) != 0;
                             self.write_precompensation =
                                 PulseDuration(((packed_configuration >> 16) & 0xff) as i32);
-
-                            self.first_significance_offset =
-                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
                             let speed_table_size =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
@@ -240,7 +234,6 @@ impl UsbHandler<'_> {
                                 recv_buffer,
                                 self.has_non_flux_reversal_area,
                             ),
-                            first_significance_offset: self.first_significance_offset as usize,
                             write_precompensation: self.write_precompensation,
                         };
 

@@ -5,7 +5,7 @@ use util::{
     bitstream::to_bit_stream,
     fluxpulse::FluxPulseGenerator,
     mfm::{MfmDecoder, MfmWord},
-    Bit, Density, DensityMap, DiskType, Encoding, PulseDuration, RawCellData, STM_TIMER_MHZ,
+    Bit, Density, DensityMap, DiskType, Encoding, RawCellData, STM_TIMER_MHZ,
 };
 
 pub struct RawImage {
@@ -39,7 +39,6 @@ pub struct RawTrack {
     pub head: u32,
     pub raw_data: Vec<u8>,
     pub densitymap: DensityMap,
-    pub first_significane_offset: Option<usize>,
     pub encoding: Encoding,
     pub write_precompensation: u32,
     pub has_non_flux_reversal_area: bool,
@@ -58,7 +57,6 @@ impl RawTrack {
             head,
             raw_data,
             densitymap,
-            first_significane_offset: None,
             encoding,
             write_precompensation: 0,
             has_non_flux_reversal_area: false,
@@ -78,120 +76,10 @@ impl RawTrack {
             head,
             raw_data,
             densitymap,
-            first_significane_offset: None,
             encoding,
             write_precompensation: 0,
             has_non_flux_reversal_area,
         }
-    }
-
-    fn find_significance_longer_pulses(
-        &self,
-        pulses: &[PulseDuration],
-        threshold: PulseDuration,
-    ) -> Option<usize> {
-        let mut significance = 0;
-
-        let pulses_iter = pulses.iter();
-
-        for (i, val) in pulses_iter.enumerate() {
-            if val.0 > threshold.0 {
-                significance += 2;
-
-                // TODO magic number
-                if significance >= 4 {
-                    return Some(i);
-                }
-            } else if significance > 0 {
-                significance -= 1;
-            }
-        }
-        None
-    }
-
-    // TODO documentation
-    fn find_significance_through_divergence(
-        &self,
-        pulses: &[PulseDuration],
-        reference: PulseDuration,
-    ) -> Option<usize> {
-        let mut significance = 0;
-
-        let pulses_iter = pulses.iter();
-
-        for (i, val) in pulses_iter.enumerate() {
-            if val.0 != reference.0 {
-                significance += 2;
-
-                // TODO magic number
-                if significance >= 8 {
-                    // TODO magic number
-                    if i < 8 {
-                        return None;
-                    } else {
-                        return Some(i);
-                    }
-                }
-            } else if significance > 0 {
-                significance -= 1;
-            }
-
-            //println!("{} {} {}", i, significance, val.0);
-        }
-        None
-    }
-
-    pub fn get_significance_offset(&mut self) -> usize {
-        let possible_offset = self.first_significane_offset.or_else(|| {
-            let pulses = self.convert_to_pulses();
-            match self.encoding {
-                Encoding::GCR => self.find_significance_through_divergence(&pulses, pulses[0]),
-                Encoding::MFM => self.find_significance_longer_pulses(
-                    &pulses,
-                    PulseDuration(self.densitymap[0].cell_size.0 * 2 + 30),
-                ),
-            }
-        });
-
-        self.first_significane_offset = possible_offset;
-
-        /*
-        println!(
-            "Signifance {} {} {:?}",
-            self.cylinder, self.head, self.first_significane_offset
-        );
-        */
-        possible_offset.expect(
-            format!(
-                "Unable to find an offset of significance for the verification of track {}!",
-                self.cylinder
-            )
-            .as_str(),
-        )
-    }
-
-    fn convert_to_pulses(&self) -> Vec<PulseDuration> {
-        let mut result = Vec::new();
-
-        let ref_duration = self.densitymap[0].cell_size.0 as u32;
-
-        // TODO avoid clone
-        let cell_data =
-            RawCellData::construct(self.densitymap.clone(), self.raw_data.clone(), false);
-
-        let mut write_prod_fpg = FluxPulseGenerator::new(|f| result.push(f), ref_duration);
-
-        // start with a flux transition. avoids long sequences of zero
-        for part in cell_data.borrow_parts() {
-            write_prod_fpg.cell_duration = part.cell_size.0 as u32;
-
-            for cell_byte in part.cells {
-                to_bit_stream(*cell_byte, |bit| write_prod_fpg.feed(bit));
-            }
-        }
-        write_prod_fpg.feed(Bit(true));
-
-        result
     }
 
     pub fn calculate_duration_of_track(&self) -> f64 {
