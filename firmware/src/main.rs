@@ -25,7 +25,7 @@ use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
 use index_sim::IndexSim;
 use rtt_target::{rprintln, rtt_init_print};
-use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, PushPull};
+use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, Pull, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
@@ -92,7 +92,11 @@ fn main() -> ! {
     let _debug_led_orange = gpiod.pd13.into_push_pull_output();
 
     // flippy disk index simulator
-    let _out_index_sim: Pin<'A', 1, Alternate<2, PushPull>> = gpioa.pa1.into_alternate(); // index sim on PA1, connected to TIM5_CH2, AF2
+    let _out_index_sim: Pin<'A', 1, Alternate<2, _>> = gpioa
+        .pa1
+        .into_alternate_open_drain()
+        .internal_resistor(Pull::None); // index sim on PA1, connected to TIM5_CH2, AF2
+
     let index_sim = IndexSim::new(dp.TIM5);
 
     // now for the floppy bus pins in the order of the connector

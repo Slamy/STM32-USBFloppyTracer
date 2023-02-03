@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.linkedProjects": [
+      // order is important (rust-analyzer/rust-analyzer#7764)
+      "Cargo.toml",
+      "firmware/Cargo.toml",
+    ]
+  }
+  
