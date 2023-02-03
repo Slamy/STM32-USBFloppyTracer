@@ -30,11 +30,13 @@ pub enum DiskType {
     Inch5_25,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum DriveSelectState {
     None,
     A,
     B,
 }
+
 #[derive(Clone, Copy, Debug)]
 pub enum Density {
     High,
@@ -59,7 +61,9 @@ pub struct DensityMapEntry {
 }
 
 pub const DRIVE_5_25_RPM: f64 = 361.0; // Normally 360 RPM would be correct. But the drive might be faster. Let's be safe here.
-pub const DRIVE_3_5_RPM: f64 = 300.2; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
+pub const DRIVE_3_5_RPM: f64 = 300.05; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
+pub const DRIVE_SLOWEST_RPM: f64 = DRIVE_3_5_RPM; // If the drive is not known, we use this for reading.
+
 pub const STM_TIMER_MHZ: f64 = 84.0;
 pub const STM_TIMER_HZ: f64 = 84e6;
 

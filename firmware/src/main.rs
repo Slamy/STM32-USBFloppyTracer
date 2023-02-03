@@ -261,7 +261,6 @@ fn mainloop(
                         rprintln!("Can't contact host. But that's ok...");
                     }
                 }
-                // TODO use result properly
             }
             Some(usb::Command::WriteVerifyRawTrack {
                 track,

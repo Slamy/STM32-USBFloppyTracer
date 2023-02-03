@@ -1,6 +1,6 @@
 # STM32-USBFloppyTracer
 
-Raw Floppy Writer using the STM32F407. Supports Amiga and C64 Images. Even copy protected!
+Raw floppy writer and reader using the STM32F407. Supports Amiga and C64 Images. Even copy protected!
 This is a remake of my [older project](https://github.com/Slamy/SlamySTM32Floppy) as I wanted to learn Rust and needed a project to do so.
 Also I don't like my old code base any more and wanted to have a cleaner software architecture.
 

@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 #![feature(let_else)]
 
+use crate::track_parser::read_first_track_discover_format;
 use crate::usb_commands::{wait_for_answer, wait_for_last_answer, write_raw_track};
 use image_reader::parse_image;
 use pretty_hex::{HexConfig, PrettyHex};
@@ -215,22 +216,14 @@ fn main() {
         0
     };
 
-    if cli.read {
-        configure_device(
-            &usb_handles,
-            select_drive,
-            util::Density::High,
-            index_sim_frequency,
-        );
+    if cli.read && cli.filepath == "discover" {
+        println!("Let me see...");
+        read_first_track_discover_format(&usb_handles, select_drive);
+    } else if cli.read {
+        let track_filter = cli.track_filter;
+        let track_filter = track_filter.map(|f| TrackFilter::new(&f));
 
-        let track_filter = cli
-            .track_filter
-            .as_ref()
-            .expect("Please specify tracks used for reading!");
-
-        let track_filter = TrackFilter::new(track_filter);
-
-        read_tracks_to_diskimage(&usb_handles, &track_filter, &cli.filepath);
+        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive);
     } else {
         let image = image.unwrap();
 

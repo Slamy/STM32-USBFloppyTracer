@@ -2,12 +2,13 @@ use std::convert::TryInto;
 
 use anyhow::ensure;
 use util::{
+    duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
     mfm::{MfmDataSeperator, RawMfmWord},
-    Density, PulseDuration,
+    Density, PulseDuration, DRIVE_3_5_RPM,
 };
 
-use crate::track_parser::concatenate_sectors;
+use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
 
 use super::{CollectedSector, TrackParser, TrackPayload};
 
@@ -45,13 +46,20 @@ impl AmigaTrackParser {
 }
 
 impl TrackParser for AmigaTrackParser {
+    fn default_file_extension(&self) -> &str {
+        "adf"
+    }
+
+    fn duration_to_record(&self) -> usize {
+        duration_of_rotation_as_stm_tim_raw(DRIVE_3_5_RPM) * 115 / 100
+    }
+
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
         let expected_track_number = self.expected_track_number.unwrap();
-
+        let cellsize_2micros = 168;
         let mut mfm_words: Vec<RawMfmWord> = Vec::new();
         let mut mfmd = MfmDataSeperator::new(|f| mfm_words.push(f));
-        // TODO cell duration magic number
-        let mut pulseparser = FluxPulseToCells::new(|val| mfmd.feed(val), 168);
+        let mut pulseparser = FluxPulseToCells::new(|val| mfmd.feed(val), cellsize_2micros);
 
         track
             .iter()
@@ -81,7 +89,9 @@ impl TrackParser for AmigaTrackParser {
                             }
                         }
                     }
-                    Err(err) => println!("{:?}", err),
+                    Err(_err) => {
+                        // Just ignore it.
+                    }
                 };
             }
         }
@@ -103,6 +113,22 @@ impl TrackParser for AmigaTrackParser {
 
     fn step_size(&self) -> usize {
         1
+    }
+
+    fn track_density(&self) -> Density {
+        Density::SingleDouble
+    }
+
+    fn format_name(&self) -> &str {
+        "AmigaDOS"
+    }
+
+    fn default_trackfilter(&self) -> crate::rawtrack::TrackFilter {
+        TrackFilter {
+            cyl_start: Some(0),
+            cyl_end: Some(79),
+            head: None,
+        }
     }
 }
 

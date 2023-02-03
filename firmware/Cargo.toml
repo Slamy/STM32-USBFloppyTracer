@@ -18,12 +18,8 @@ ouroboros = "0.15.5"
 cassette = "0.2.3"
 rtt-target = { version ="0.3.1", features = ["cortex-m"] }
 
-# Makes this panicked at 'already borrowed: BorrowMutError', src/main.rs:92:37
-# debugless-unwrap = "0.0.4"
-
 [dev-dependencies]
 nb = "1.0"
-# panic-itm = "0.4"
 
 [dependencies.cortex-m]
 features = ["inline-asm"]
@@ -34,25 +30,6 @@ default-features = true
 features = ["rt", "stm32f407", "usb_fs", "otg-fs", "device-selected"]
 version = "0.13.2"
 
-[dependencies.embedded-hal]
-features = ["unproven"]
-version = "0.2"
-
-
-# Uncomment for the panic example.
-# panic-itm = "0.4.1"
-
-# Uncomment for the allocator example.
-# alloc-cortex-m = "0.4.0"
-
-# Uncomment for the device example.
-# Update `memory.x`, set target to `thumbv7em-none-eabihf` in `.cargo/config`,
-# and then use `cargo build --examples device` to build it.
-# [dependencies.stm32f3]
-# features = ["stm32f303", "rt"]
-# version = "0.7.1"
-
-# this lets you use `cargo fix`!
 [[bin]]
 name = "stmtest"
 test = false

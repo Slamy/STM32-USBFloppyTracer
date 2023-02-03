@@ -1,12 +1,13 @@
 use anyhow::ensure;
 use util::{
     c64_geometry::{get_track_settings, TrackConfiguration},
+    duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
     gcr::{GcrDecoder, GcrDecoderResult},
-    PulseDuration,
+    Density, PulseDuration, DRIVE_5_25_RPM,
 };
 
-use crate::track_parser::concatenate_sectors;
+use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
 
 use super::{CollectedSector, TrackParser, TrackPayload};
 
@@ -27,6 +28,30 @@ impl C64TrackParser {
 }
 
 impl TrackParser for C64TrackParser {
+    fn default_file_extension(&self) -> &str {
+        "d64"
+    }
+
+    fn format_name(&self) -> &str {
+        "C64 1541"
+    }
+
+    fn duration_to_record(&self) -> usize {
+        duration_of_rotation_as_stm_tim_raw(DRIVE_5_25_RPM) * 110 / 100
+    }
+
+    fn track_density(&self) -> Density {
+        Density::SingleDouble
+    }
+
+    fn default_trackfilter(&self) -> crate::rawtrack::TrackFilter {
+        TrackFilter {
+            cyl_start: Some(0),
+            cyl_end: Some(68),
+            head: Some(0),
+        }
+    }
+
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
         let track_config = self.track_config.as_ref().unwrap();
 
@@ -60,16 +85,18 @@ impl TrackParser for C64TrackParser {
                         for _ in 0..5 {
                             if let Some(GcrDecoderResult::Byte(val)) = iterator.next() {
                                 sector_header.push(*val);
+                            } else {
+                                break;
                             }
                         }
 
-                        let checksum = sector_header[0..5]
+                        let checksum = sector_header
                             .iter()
                             .cloned()
                             .reduce(|accu, input| accu ^ input)
                             .unwrap();
 
-                        if checksum == 0 {
+                        if sector_header.len() == 5 && checksum == 0 {
                             // Did we get this sector yet?
 
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
