@@ -141,6 +141,18 @@ impl RawTrackHandler {
                 .unwrap()
                 .clear_buffers();
 
+            // Start degaussing the track.
+            // Avoids having old data at the end of the track
+            // which might cause confusion during reading without
+            // index alignment. Amiga and C64 are prone to this problem
+            // as they just ignore the index signal during reading and writing.
+            interrupts::FLUX_WRITER
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .enable_write_head();
+
             interrupts::FLOPPY_CONTROL
                 .borrow(cs)
                 .borrow_mut()

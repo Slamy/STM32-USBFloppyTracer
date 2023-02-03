@@ -6,7 +6,3 @@
     * Fix similarity detection for all disk types. Must depend on format.
 * Add Disk Change detection (Forever mode?)
 * Fix soft lockups
-* Significance Offset doesn't work correctly with ISO format as the Gap is detected as significance and the signal auto correlates.
-    * I should remove this whole significane system in favor of starting the read **before** the index signal using a timer.
-* Degauss disk after written data before next index.
-    * Games like Apprentice can detect data from previous written images and won't boot up!

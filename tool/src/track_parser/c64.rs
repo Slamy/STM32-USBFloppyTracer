@@ -110,6 +110,8 @@ impl TrackParser for C64TrackParser {
                                 awaiting_data_block = 20;
                             }
                             ensure!(sector_header[2] as u32 == self.expected_track_number.unwrap());
+                        } else {
+                            println!("Checksum of sector {} header was wrong", sector_header[1])
                         }
                     }
 
@@ -143,8 +145,9 @@ impl TrackParser for C64TrackParser {
 
                             if collected_sectors.len() == track_config.sectors as usize {
                                 // Exit it after we got all expected sectors.
-                                break;
                             }
+                        } else {
+                            println!("Checksum of sector {} data was wrong", sector_header[1])
                         }
                     }
                     _ => {}

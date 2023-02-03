@@ -175,6 +175,10 @@ impl FluxWriter {
         self.tim4.arr.write(|w| w.arr().bits(800)); // count to 200 and reset
     }
 
+    pub fn enable_write_head(&mut self) {
+        self.write_gate.set_low();
+    }
+
     pub fn start_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 

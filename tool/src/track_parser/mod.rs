@@ -65,8 +65,8 @@ pub fn read_first_track_discover_format(
     // This is very useful and I assume not random at all
     configure_device(&usb_handles, select_drive, Density::High, 0);
 
-    // we need to make sure to read more than we need.
-    // we only have one chance here. So just get 125% of the first track with the slowest drive we support.
+    // We need to make sure to read more than we need.
+    // We only have one chance here. So just get 125% of the first track with the slowest drive we support.
     let duration_to_record = duration_of_rotation_as_stm_tim_raw(DRIVE_SLOWEST_RPM) * 125 / 100;
 
     let track_parsers: Vec<Box<dyn TrackParser>> = vec![
