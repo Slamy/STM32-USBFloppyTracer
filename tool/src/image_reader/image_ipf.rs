@@ -120,7 +120,8 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                     trackbuf_orig[0..overlap as usize].into()
                 };
 
-                let auto_cell_size = auto_cell_size(trackbuf.len() as u32, DRIVE_3_5_RPM);
+                let auto_cell_size =
+                    auto_cell_size(trackbuf.len() as u32, DRIVE_3_5_RPM).min(168.0_f64);
 
                 let mut densitymap;
                 if trackInf.type_ == ctitVar {

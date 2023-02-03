@@ -64,7 +64,7 @@ mod tests {
     #[case( // 2 - Long Tracks Amiga
         "../images/Turrican.ipf",
         "654e52bec1555ab3802c21f6ea269e64",
-        "214d642b4043b96b1c739356e6432127"
+        "428c9e69290efae8282f300f2a9ecea4"
     )]
     #[case( // 3 - Long Tracks Amiga
         "../images/Turrican2.ipf",
@@ -99,12 +99,12 @@ mod tests {
     #[case( // 9 - Amiga IPF with CopyLock
         "../images/Gods_Disc1.ipf",
         "7b2a11eda49fc6841834e792dab53997",
-        "eedd14867ee37d8d14bd188ea49d7b88"
+        "667d9427117a0315a43af130de921aff"
     )]
     #[case( // 10 - Atari ST IPF with LongTracks
         "../atarist_ipf/Turrican II - The Final Fight (Europe) (Budget - Kixx).ipf",
         "f18557040f7370b5c682456e668412ef",
-        "3862da9519f64a1e91795c302b0326a8"
+        "912190575610bf1834dff1c80d629f87"
     )]
     #[case( // 11 - Atari ST Raw ISO Image
         "../images/Rodland (1991)(Sales Curve)[cr Alien][t].st",
