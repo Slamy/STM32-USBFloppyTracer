@@ -28,7 +28,7 @@ version = "0.7.6"
 [dependencies.stm32f4xx-hal]
 default-features = true
 features = ["rt", "stm32f407", "usb_fs", "otg-fs", "device-selected"]
-version = "0.13.2"
+version = "0.14.0"
 
 [[bin]]
 name = "stmtest"

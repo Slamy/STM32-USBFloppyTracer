@@ -94,11 +94,11 @@ impl FluxReader {
                 .write(|w| w.m1a().bits(self.current_buffer.as_ptr() as u32));
             dma_stream
                 .par
-                .write(|w| w.pa().bits(self.tim2.ccr3.as_ptr() as u32));
+                .write(|w| w.pa().bits(self.tim2.ccr3().as_ptr() as u32));
         }
 
         self.tim2.cnt.write(|w| w.cnt().bits(0)); // reset count to 0
-        self.tim2.ccr3.write(|f| f.ccr().bits(0)); // reset count to 0
+        self.tim2.ccr3().write(|f| f.ccr().bits(0)); // reset count to 0
         self.last_pulse_cnt = 0;
 
         dma_stream.cr.modify(|_, w| w.en().enabled()); // enable dma

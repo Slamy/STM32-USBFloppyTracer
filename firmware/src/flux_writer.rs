@@ -198,7 +198,7 @@ impl FluxWriter {
 
         tim4.cr1.modify(|_, w| w.dir().down());
 
-        tim4.ccr3.write(|w| w.ccr().bits(ACTIVE_PULSE_LEN)); // output compare value
+        tim4.ccr3().write(|w| w.ccr().bits(ACTIVE_PULSE_LEN)); // output compare value
         tim4.ccmr2_output().modify(|_, w| w.oc3m().force_inactive());
 
         tim4.ccer.write(|w| w.cc3e().set_bit().cc3p().set_bit()); //activate channel 3 output with inverse polarity
