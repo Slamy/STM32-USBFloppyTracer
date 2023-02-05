@@ -1,9 +1,11 @@
+use alloc::boxed::Box;
 use alloc::sync::Arc;
+use core::convert::Infallible;
 use core::mem;
 use cortex_m::interrupt::{CriticalSection, Mutex};
 use heapless::spsc::Consumer;
 use heapless::Vec;
-use stm32f4xx_hal::gpio::{Output, Pin};
+use stm32f4xx_hal::hal::digital::v2::OutputPin;
 
 use stm32f4xx_hal::pac::{DMA1, TIM4};
 
@@ -24,7 +26,7 @@ pub struct FluxWriter {
     last_dma_frame_active: bool,
     number_of_last_pulses: i32,
     cons: Consumer<'static, u32, 128>,
-    write_gate: Pin<'B', 5, Output>,
+    write_gate: Box<dyn OutputPin<Error = Infallible> + Send>,
 }
 
 impl FluxWriter {
@@ -65,7 +67,7 @@ impl FluxWriter {
             }
             if self.number_of_last_pulses == -2 {
                 self.tim4.cr1.modify(|_, w| w.cen().clear_bit()); // disable timer
-                self.write_gate.set_high();
+                self.write_gate.set_high().unwrap();
             }
         } else {
             panic!("Wasted TIM4 IRQ !");
@@ -176,13 +178,13 @@ impl FluxWriter {
     }
 
     pub fn enable_write_head(&mut self) {
-        self.write_gate.set_low();
+        self.write_gate.set_low().unwrap();
     }
 
     pub fn start_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
-        self.write_gate.set_low();
+        self.write_gate.set_low().unwrap();
 
         dma_stream.cr.modify(|_, w| w.en().enabled()); // enable dma
         self.tim4.cr1.modify(|_, w| w.cen().set_bit()); // enable timer
@@ -192,7 +194,7 @@ impl FluxWriter {
         tim4: TIM4,
         dma1: Arc<Mutex<DMA1>>,
         cons: Consumer<'static, u32, 128>,
-        write_gate: Pin<'B', 5, Output>,
+        write_gate: Box<dyn OutputPin<Error = Infallible> + Send>,
     ) -> Self {
         const ACTIVE_PULSE_LEN: u16 = 40;
 

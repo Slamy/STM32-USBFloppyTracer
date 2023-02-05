@@ -135,15 +135,15 @@ fn main() -> ! {
     let _in_disk_change_ready = gpiob.pb12.into_pull_up_input();
 
     let floppy_control = FloppyControl::new(
-        out_motor_enable_a,
-        out_drive_select_b,
-        out_drive_select_a,
-        out_motor_enable_b,
-        out_step_direction,
-        out_step_perform,
-        in_track_00,
-        out_head_select,
-        out_density_select,
+        Box::new(out_motor_enable_a),
+        Box::new(out_drive_select_b),
+        Box::new(out_drive_select_a),
+        Box::new(out_motor_enable_b),
+        Box::new(out_step_direction),
+        Box::new(out_step_perform),
+        Box::new(in_track_00),
+        Box::new(out_head_select),
+        Box::new(out_density_select),
     );
 
     let usb = USB {
@@ -179,7 +179,7 @@ fn main() -> ! {
     let (read_prod, read_cons) = reading_buffer.split();
     let (write_prod, write_cons) = writing_buffer.split();
 
-    let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, out_write_gate);
+    let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, Box::new(out_write_gate));
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
     let serial = CdcAcmClass::new(usb_bus, 64);

@@ -1,5 +1,11 @@
+use core::convert::Infallible;
+
+use alloc::boxed::Box;
 use rtt_target::rprintln;
-use stm32f4xx_hal::gpio::{Output, Pin, PinState};
+use stm32f4xx_hal::{
+    gpio::PinState,
+    hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin},
+};
 use util::{Density, DriveSelectState, Track};
 
 #[derive(Clone, Copy, Debug)]
@@ -16,15 +22,15 @@ enum MotorState {
 }
 
 pub struct FloppyControl {
-    out_motor_enable_a: Pin<'A', 8, Output>,
-    out_drive_select_b: Pin<'A', 15, Output>,
-    out_drive_select_a: Pin<'B', 0, Output>,
-    out_motor_enable_b: Pin<'B', 1, Output>,
-    out_step_direction: Pin<'B', 2, Output>,
-    out_step_perform: Pin<'B', 4, Output>,
-    in_track_00: Pin<'B', 7>,
-    out_head_select: Pin<'B', 11, Output>,
-    out_density_select: Pin<'B', 13, Output>,
+    out_motor_enable_a: Box<dyn OutputPin<Error = Infallible> + Send>,
+    out_drive_select_b: Box<dyn OutputPin<Error = Infallible> + Send>,
+    out_drive_select_a: Box<dyn OutputPin<Error = Infallible> + Send>,
+    out_motor_enable_b: Box<dyn OutputPin<Error = Infallible> + Send>,
+    out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
+    out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
+    in_track_00: Box<dyn InputPin<Error = Infallible> + Send>,
+    out_head_select: Box<dyn OutputPin<Error = Infallible> + Send>,
+    out_density_select: Box<dyn OutputPin<Error = Infallible> + Send>,
 
     current_cylinder: Option<i32>,
     wanted_cylinder: i32,
@@ -35,15 +41,15 @@ pub struct FloppyControl {
 
 impl FloppyControl {
     pub fn new(
-        out_motor_enable_a: Pin<'A', 8, Output>,
-        out_drive_select_b: Pin<'A', 15, Output>,
-        out_drive_select_a: Pin<'B', 0, Output>,
-        out_motor_enable_b: Pin<'B', 1, Output>,
-        out_step_direction: Pin<'B', 2, Output>,
-        out_step_perform: Pin<'B', 4, Output>,
-        in_track_00: Pin<'B', 7>,
-        out_head_select: Pin<'B', 11, Output>,
-        out_density_select: Pin<'B', 13, Output>,
+        out_motor_enable_a: Box<dyn OutputPin<Error = Infallible> + Send>,
+        out_drive_select_b: Box<dyn OutputPin<Error = Infallible> + Send>,
+        out_drive_select_a: Box<dyn OutputPin<Error = Infallible> + Send>,
+        out_motor_enable_b: Box<dyn OutputPin<Error = Infallible> + Send>,
+        out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
+        out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
+        in_track_00: Box<dyn InputPin<Error = Infallible> + Send>,
+        out_head_select: Box<dyn OutputPin<Error = Infallible> + Send>,
+        out_density_select: Box<dyn OutputPin<Error = Infallible> + Send>,
     ) -> Self {
         Self {
             out_motor_enable_a,
@@ -66,11 +72,11 @@ impl FloppyControl {
     pub fn select_density(&mut self, dens: Density) {
         match dens {
             Density::High => {
-                self.out_density_select.set_high();
+                self.out_density_select.set_high().unwrap();
                 rprintln!("High Density selected!");
             }
             Density::SingleDouble => {
-                self.out_density_select.set_low();
+                self.out_density_select.set_low().unwrap();
                 rprintln!("Double Density selected!");
             }
         }
@@ -80,12 +86,12 @@ impl FloppyControl {
         match self.drive_select {
             DriveSelectState::None => {}
             DriveSelectState::A => {
-                self.out_motor_enable_a.set_low();
-                self.out_drive_select_a.set_low();
+                self.out_motor_enable_a.set_low().unwrap();
+                self.out_drive_select_a.set_low().unwrap();
             }
             DriveSelectState::B => {
-                self.out_drive_select_b.set_low();
-                self.out_motor_enable_b.set_low();
+                self.out_drive_select_b.set_low().unwrap();
+                self.out_motor_enable_b.set_low().unwrap();
             }
         }
         self.motor_state = MotorState::On(800);
@@ -99,10 +105,10 @@ impl FloppyControl {
         match self.drive_select {
             DriveSelectState::None => {}
             DriveSelectState::A => {
-                self.out_motor_enable_a.set_high();
+                self.out_motor_enable_a.set_high().unwrap();
             }
             DriveSelectState::B => {
-                self.out_motor_enable_b.set_high();
+                self.out_motor_enable_b.set_high().unwrap();
             }
         }
         self.motor_state = MotorState::Off;
@@ -112,35 +118,35 @@ impl FloppyControl {
         match state {
             DriveSelectState::None => {
                 // stop everything.
-                self.out_drive_select_a.set_high();
-                self.out_motor_enable_a.set_high();
+                self.out_drive_select_a.set_high().unwrap();
+                self.out_motor_enable_a.set_high().unwrap();
 
-                self.out_drive_select_b.set_high();
-                self.out_motor_enable_b.set_high();
+                self.out_drive_select_b.set_high().unwrap();
+                self.out_motor_enable_b.set_high().unwrap();
             }
             DriveSelectState::A => {
                 // stop all drive B activities
-                self.out_drive_select_b.set_high();
-                self.out_motor_enable_b.set_high();
+                self.out_drive_select_b.set_high().unwrap();
+                self.out_motor_enable_b.set_high().unwrap();
 
-                self.out_drive_select_a.set_low();
+                self.out_drive_select_a.set_low().unwrap();
                 rprintln!("Drive A selected!");
             }
             DriveSelectState::B => {
                 // stop all drive A activites
-                self.out_drive_select_a.set_high();
-                self.out_motor_enable_a.set_high();
+                self.out_drive_select_a.set_high().unwrap();
+                self.out_motor_enable_a.set_high().unwrap();
 
-                self.out_drive_select_b.set_low();
+                self.out_drive_select_b.set_low().unwrap();
                 rprintln!("Drive B selected!");
             }
         }
 
         self.drive_select = state;
 
-        self.out_step_direction.set_high();
-        self.out_step_perform.set_high();
-        self.out_head_select.set_high();
+        self.out_step_direction.set_high().unwrap();
+        self.out_step_perform.set_high().unwrap();
+        self.out_head_select.set_high().unwrap();
 
         // cylinder is unknown. require track 00 first.
         self.current_cylinder = None;
@@ -148,11 +154,13 @@ impl FloppyControl {
 
     pub fn select_track(&mut self, track: Track) {
         self.wanted_cylinder = track.cylinder.0 as i32;
-        self.out_head_select.set_state(if track.head.0 == 0 {
-            PinState::High
-        } else {
-            PinState::Low
-        });
+        self.out_head_select
+            .set_state(if track.head.0 == 0 {
+                PinState::High
+            } else {
+                PinState::Low
+            })
+            .unwrap();
     }
 
     pub fn get_current_cylinder(&self) -> i32 {
@@ -167,25 +175,25 @@ impl FloppyControl {
     fn step_machine(&mut self) {
         self.step_state = match self.step_state {
             StepState::Idle => {
-                if self.in_track_00.is_low() {
+                if self.in_track_00.is_low().unwrap() {
                     self.current_cylinder = Some(0);
                 }
 
                 if let Some(current_cylinder) = self.current_cylinder {
                     if current_cylinder < self.wanted_cylinder
-                        && self.out_step_direction.is_set_high()
+                        && self.out_step_direction.is_set_high().unwrap()
                     {
                         // direction is wrong. set direction and give it time to settle
-                        self.out_step_direction.set_low();
+                        self.out_step_direction.set_low().unwrap();
                         StepState::SettingDirection(10)
                     } else if current_cylinder > self.wanted_cylinder
-                        && self.out_step_direction.is_set_low()
+                        && self.out_step_direction.is_set_low().unwrap()
                     {
                         // direction is wrong. set direction and give it time to settle
-                        self.out_step_direction.set_high();
+                        self.out_step_direction.set_high().unwrap();
                         StepState::SettingDirection(10)
                     } else if current_cylinder != self.wanted_cylinder {
-                        self.out_step_perform.set_low();
+                        self.out_step_perform.set_low().unwrap();
 
                         if current_cylinder < self.wanted_cylinder {
                             *self.current_cylinder.as_mut().unwrap() += 1;
@@ -198,8 +206,8 @@ impl FloppyControl {
                     }
                 } else {
                     // the current cylinder is not known. set the direction to outside and step
-                    self.out_step_direction.set_high();
-                    self.out_step_perform.set_low();
+                    self.out_step_direction.set_high().unwrap();
+                    self.out_step_perform.set_low().unwrap();
                     StepState::Stepping
                 }
             }
@@ -220,7 +228,7 @@ impl FloppyControl {
             }
 
             StepState::Stepping => {
-                self.out_step_perform.set_high();
+                self.out_step_perform.set_high().unwrap();
 
                 // Is this the cylinder which we want? Then allow the head to settle before doing anything else.
                 if let Some(current_cylinder) = self.current_cylinder && current_cylinder==self.wanted_cylinder {
