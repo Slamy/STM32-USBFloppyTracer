@@ -44,7 +44,7 @@ pub fn write_precompensation_calibration(
                 .unwrap();
 
             let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-            let response_split: Vec<&str> = response_text.split(" ").collect();
+            let response_split: Vec<&str> = response_text.split(' ').collect();
 
             match response_split[0] {
                 "WrittenAndVerified" => {
@@ -93,8 +93,8 @@ pub fn write_precompensation_calibration(
             .iter_mut()
             .find(|f| f.cylinder == forced_cylinder);
 
-        let mut track: &mut RawTrack = if possible_track.is_some() {
-            possible_track.unwrap()
+        let mut track: &mut RawTrack = if let Some(x) = possible_track {
+            x
         } else {
             println!("Just use the last track...");
             image.tracks.last_mut().unwrap()
@@ -105,7 +105,7 @@ pub fn write_precompensation_calibration(
 
         for write_precomp in (0..maximum_write_precompensation).step_by(1) {
             track.write_precompensation = write_precomp;
-            write_raw_track(&usb_handles, track);
+            write_raw_track(usb_handles, track);
 
             process_answer(&mut results, false);
         }
@@ -160,32 +160,30 @@ impl WritePrecompDb {
 
         println!("Reading config from {:?}", x);
         let file = File::open(x)
-            .or_else(|f| {
-                println!("Write precompensation not used... {}", f.to_string());
-                Err(f)
+            .map_err(|f| {
+                println!("Write precompensation not used... {}", f);
+                f
             })
             .ok()?;
 
         let lines = io::BufReader::new(file).lines();
 
-        for line in lines {
-            if let Ok(line) = line {
-                let number_parts: Vec<u32> = line
-                    .split_ascii_whitespace()
-                    .filter_map(|d| d.parse().ok())
-                    .collect();
+        for line in lines.flatten() {
+            let number_parts: Vec<u32> = line
+                .split_ascii_whitespace()
+                .filter_map(|d| d.parse().ok())
+                .collect();
 
-                if number_parts.len() == 3 {
-                    let cellsize = number_parts[0];
-                    let cylinder = number_parts[1];
-                    let wprecomp = number_parts[2];
+            if number_parts.len() == 3 {
+                let cellsize = number_parts[0];
+                let cylinder = number_parts[1];
+                let wprecomp = number_parts[2];
 
-                    samples.push(Sample {
-                        cellsize,
-                        cylinder,
-                        wprecomp,
-                    });
-                }
+                samples.push(Sample {
+                    cellsize,
+                    cylinder,
+                    wprecomp,
+                });
             }
         }
 
@@ -203,9 +201,7 @@ impl WritePrecompDb {
 
         let Some(left_bottom_sample) = self
             .samples
-            .iter()
-            .filter(|f| f.cellsize == left_top_sample.cellsize && f.cylinder >= cylinder)
-            .next()
+            .iter().find(|f| f.cellsize == left_top_sample.cellsize && f.cylinder >= cylinder)
             else {
                 return Some((left_top_sample.wprecomp as f32, left_top_sample.cellsize));
             };
@@ -226,9 +222,7 @@ impl WritePrecompDb {
     fn lerp_right(&self, cellsize: u32, cylinder: u32) -> (f32, u32) {
         let Some(right_bottom_sample) = self
             .samples
-            .iter()
-            .filter(|f| f.cellsize >= cellsize && f.cylinder >= cylinder)
-            .next()
+            .iter().find(|f| f.cellsize >= cellsize && f.cylinder >= cylinder)
             else {
                 let last_sample = self.samples.last().unwrap();
                 return (last_sample.wprecomp as f32, last_sample.cellsize);

@@ -82,7 +82,7 @@ pub fn async_wait_for_index() -> impl Future<Output = Result<(), ()>> {
 
         if index_occured {
             Poll::Ready(Ok(()))
-        } else if motor_spinning == false {
+        } else if !motor_spinning {
             Poll::Ready(Err(()))
         } else {
             Poll::Pending
@@ -111,7 +111,7 @@ pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
 
         if transmission_active {
             Poll::Ready(Ok(()))
-        } else if motor_spinning == false {
+        } else if !motor_spinning {
             Poll::Ready(Err(()))
         } else {
             Poll::Pending
@@ -140,7 +140,7 @@ pub fn async_wait_for_receive() -> impl Future<Output = Result<(), ()>> {
 
         if transmission_active {
             Poll::Ready(Ok(()))
-        } else if motor_spinning == false {
+        } else if !motor_spinning {
             Poll::Ready(Err(()))
         } else {
             Poll::Pending
@@ -187,7 +187,7 @@ fn EXTI3() {
             rprintln!("Warning! Overwriting my own track!");
         }
 
-        if START_TRANSMIT_ON_INDEX.borrow(cs).get() == true {
+        if START_TRANSMIT_ON_INDEX.borrow(cs).get() {
             START_TRANSMIT_ON_INDEX.borrow(cs).set(false);
 
             FLUX_WRITER
@@ -198,7 +198,7 @@ fn EXTI3() {
                 .start_transmit(cs);
         }
 
-        if START_RECEIVE_ON_INDEX.borrow(cs).get() == true {
+        if START_RECEIVE_ON_INDEX.borrow(cs).get() {
             START_RECEIVE_ON_INDEX.borrow(cs).set(false);
 
             FLUX_READER

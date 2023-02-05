@@ -164,7 +164,7 @@ mod tests {
 
     use super::*;
 
-    fn check_aligned_amiga_mfm_track(buffer: &Vec<u8>) {
+    fn check_aligned_amiga_mfm_track(buffer: &[u8]) {
         let mut longs = buffer.chunks(4);
 
         for _ in 0..SECTORS_PER_TRACK {

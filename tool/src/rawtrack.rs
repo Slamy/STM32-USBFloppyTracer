@@ -183,8 +183,7 @@ pub fn auto_cell_size(tracklen: u32, rpm: f64) -> f64 {
     let number_cells = tracklen * 8;
     let seconds_per_revolution = 60.0 / rpm;
     let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / number_cells as f64;
-    let raw_timer_val = STM_TIMER_MHZ * microseconds_per_cell;
-    raw_timer_val
+    STM_TIMER_MHZ * microseconds_per_cell
 }
 
 pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
@@ -239,7 +238,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
 
             // Ok this is our sector!
             let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-            crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfe]);
+            crc.update(&[0xa1, 0xa1, 0xa1, 0xfe]);
             crc.update(&sector_header);
             let crc16 = crc.get();
             assert_eq!(crc16, 0);
@@ -290,8 +289,8 @@ impl TrackFilter {
     }
 
     pub fn new(param: &str) -> Self {
-        let head_split: Vec<_> = param.split(":").collect();
-        let track_split: Vec<&str> = head_split[0].split("-").collect();
+        let head_split: Vec<_> = param.split(':').collect();
+        let track_split: Vec<&str> = head_split[0].split('-').collect();
 
         if head_split.len() == 1 {
             return Self::from_track_split(track_split, None);

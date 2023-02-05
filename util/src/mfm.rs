@@ -54,7 +54,7 @@ where
             self.last_bit = Bit(true);
         } else {
             // Encode 0
-            if self.last_bit.0 == true {
+            if self.last_bit.0 {
                 (self.sink)(Bit(false));
                 (self.sink)(Bit(false));
             } else {

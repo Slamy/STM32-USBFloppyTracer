@@ -63,7 +63,7 @@ pub fn read_first_track_discover_format(
 ) -> Option<Box<dyn TrackParser>> {
     // For some reason, the High density can read both densities on the first few cylinders...
     // This is very useful and I assume not random at all
-    configure_device(&usb_handles, select_drive, Density::High, 0);
+    configure_device(usb_handles, select_drive, Density::High, 0);
 
     // We need to make sure to read more than we need.
     // We only have one chance here. So just get 125% of the first track with the slowest drive we support.
@@ -78,7 +78,7 @@ pub fn read_first_track_discover_format(
     let cylinder = 0;
     let head = 0;
 
-    let raw_data = read_raw_track(&usb_handles, cylinder, head, false, duration_to_record);
+    let raw_data = read_raw_track(usb_handles, cylinder, head, false, duration_to_record);
 
     let mut result: Option<Box<dyn TrackParser>> = None;
 
@@ -132,10 +132,10 @@ pub fn read_tracks_to_diskimage(
 
         (track_parser, filepath.into())
     };
-    let track_filter = track_filter.unwrap_or(track_parser.default_trackfilter());
+    let track_filter = track_filter.unwrap_or_else(|| track_parser.default_trackfilter());
 
     let duration_to_record = track_parser.duration_to_record();
-    configure_device(&usb_handles, select_drive, track_parser.track_density(), 0);
+    configure_device(usb_handles, select_drive, track_parser.track_density(), 0);
 
     let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
     let mut cylinder_end = track_filter
@@ -166,7 +166,7 @@ pub fn read_tracks_to_diskimage(
 
             for _ in 0..5 {
                 let raw_data =
-                    read_raw_track(&usb_handles, cylinder, head, false, duration_to_record);
+                    read_raw_track(usb_handles, cylinder, head, false, duration_to_record);
                 let track = track_parser.parse_raw_track(&raw_data).ok();
 
                 if track.is_some() {
@@ -180,8 +180,8 @@ pub fn read_tracks_to_diskimage(
                 )
             }
 
-            let track =
-                possible_track.expect(&format!("Unable to read track {} {}", cylinder, head));
+            let track = possible_track
+                .unwrap_or_else(|| panic!("Unable to read track {} {}", cylinder, head));
 
             assert_eq!(cylinder, track.cylinder);
             assert_eq!(head, track.head);

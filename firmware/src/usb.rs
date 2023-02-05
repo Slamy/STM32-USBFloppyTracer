@@ -59,7 +59,7 @@ impl UsbHandler<'_> {
         }
     }
 
-    pub fn response(&mut self, text: &str) -> Result<(), ()> {
+    pub fn response(&mut self, text: &str) -> Result<(), UsbError> {
         assert!(text.len() < 60);
 
         // TODO find better solution!
@@ -75,7 +75,7 @@ impl UsbHandler<'_> {
             }
             self.handle();
         }
-        Err(())
+        Err(UsbError::WouldBlock)
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<usize, UsbError> {

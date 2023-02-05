@@ -112,8 +112,8 @@ impl FluxWriter {
     pub fn prepare_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
-        assert!(dma_stream.cr.read().en().is_enabled() == false);
-        assert!(self.tim4.cr1.read().cen().is_enabled() == false);
+        assert!(!dma_stream.cr.read().en().is_enabled());
+        assert!(!self.tim4.cr1.read().cen().is_enabled());
 
         self.current_buffer.clear();
         self.back_buffer.clear();
@@ -129,7 +129,7 @@ impl FluxWriter {
         self.last_dma_frame_active = false;
         self.number_of_last_pulses = 0;
 
-        assert!(self.back_buffer.is_full() == true);
+        assert!(self.back_buffer.is_full());
 
         #[rustfmt::skip] // keep the config readable!
             dma_stream.cr.write(|w| {

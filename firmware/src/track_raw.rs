@@ -77,7 +77,7 @@ impl RawTrackHandler {
             raw_cell_data = self
                 .write_track(write_precompensation, raw_cell_data)
                 .await
-                .or_else(|_| Err((write_operations, verify_operations)))?;
+                .map_err(|_| (write_operations, verify_operations))?;
 
             for read_try in 0..3 {
                 verify_operations += 1;
@@ -205,14 +205,14 @@ impl RawTrackHandler {
             START_TRANSMIT_ON_INDEX.borrow(cs).set(true);
         });
 
-        if let Err(_) = async_wait_for_transmit().await {
+        if async_wait_for_transmit().await.is_err() {
             rprintln!("Transmit timeout? Drive not responsing.");
             return Err(());
         }
 
         // continue until whole track is written.
         // TODO copy pasta
-        while let Some(mfm_byte) = track_data_iter.next() {
+        for mfm_byte in track_data_iter {
             assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
 
             while self.write_prod_cell.borrow().len() > 70 {
@@ -221,11 +221,11 @@ impl RawTrackHandler {
             to_bit_stream(*mfm_byte, |bit| write_prod_fpg.feed(bit));
         }
 
-        while let Some(part) = parts.next() {
-            let mut track_data_iter = part.cells.iter();
+        for part in parts {
+            let track_data_iter = part.cells.iter();
 
             write_prod_fpg.cell_duration = part.cell_size.0 as u32;
-            while let Some(mfm_byte) = track_data_iter.next() {
+            for mfm_byte in track_data_iter {
                 assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
 
                 while self.write_prod_cell.borrow().len() > 70 {
@@ -257,19 +257,19 @@ impl RawTrackHandler {
                 .spin_motor();
         });
 
-        while let Some(_) = self.read_cons.dequeue() {}
+        while self.read_cons.dequeue().is_some() {}
 
         async_select_and_wait_for_track(track).await;
 
         if wait_for_index {
             // Throw away all data in the queue before we read real data
-            while let Some(_) = self.read_cons.dequeue() {}
+            while self.read_cons.dequeue().is_some() {}
 
             // start reception of track on next index pulse
             cortex_m::interrupt::free(|cs| {
                 START_RECEIVE_ON_INDEX.borrow(cs).set(true);
             });
-            if let Err(_) = async_wait_for_index().await {
+            if async_wait_for_index().await.is_err() {
                 return Err(RawTrackError::NoIndexPulse);
             };
         } else {
@@ -302,12 +302,10 @@ impl RawTrackHandler {
         }
         self.async_read_flux().await;
 
-        while usb_frames_transferred < usb_frames_collected
-            || required_duration_was_recorded == false
-        {
+        while usb_frames_transferred < usb_frames_collected || !required_duration_was_recorded {
             // Some data to send?
             if let Some(front) = buffers.front() {
-                if let Ok(size) = usb_handler.write(&front) {
+                if let Ok(size) = usb_handler.write(front) {
                     assert_eq!(size, 64);
 
                     max_slack = max_slack.max(buffers.len());
@@ -349,16 +347,16 @@ impl RawTrackHandler {
                             required_duration_was_recorded = true;
                             flux_reader_stop_reception();
                             // Throw away remaining data
-                            while let Some(_) = self.read_cons.dequeue() {}
+                            while self.read_cons.dequeue().is_some() {}
                         }
                     }
                 } else {
                     timeout += 1;
                     // TODO magic number
-                    if timeout == 0x800_000 {
+                    if timeout == 0x0080_0000 {
                         flux_reader_stop_reception();
                         // Throw away remaining data
-                        while let Some(_) = self.read_cons.dequeue() {}
+                        while self.read_cons.dequeue().is_some() {}
                         return Err(RawTrackError::NoIncomingData);
                     }
                 }
@@ -412,7 +410,7 @@ impl RawTrackHandler {
         });
 
         // Throw away all data in the queue before we read real data
-        while let Some(_) = self.read_cons.dequeue() {}
+        while self.read_cons.dequeue().is_some() {}
 
         // we might have multiple different cell densities. grab the first one
         let mut parts = track_data_to_write.borrow_parts().iter();
@@ -458,7 +456,7 @@ impl RawTrackHandler {
             START_RECEIVE_ON_INDEX.borrow(cs).set(true);
         });
 
-        if let Err(_) = async_wait_for_index().await {
+        if async_wait_for_index().await.is_err() {
             return Err((RawTrackError::NoIndexPulse, track_data_to_write));
         };
 
@@ -533,14 +531,12 @@ impl RawTrackHandler {
             if flux_data_to_write_queue.borrow().len() < 30 {
                 if let Some(val) = track_data_to_write_iter.next() {
                     to_bit_stream(*val, |bit| flux_data_to_write_fpg.feed(bit))
-                } else {
-                    if let Some(part) = parts.next() {
-                        flux_data_to_write_fpg.cell_duration = part.cell_size.0 as u32;
+                } else if let Some(part) = parts.next() {
+                    flux_data_to_write_fpg.cell_duration = part.cell_size.0 as u32;
 
-                        track_data_to_write_iter = part.cells.iter();
-                    } else {
-                        flux_data_to_write_fpg.flush();
-                    }
+                    track_data_to_write_iter = part.cells.iter();
+                } else {
+                    flux_data_to_write_fpg.flush();
                 }
             }
         };

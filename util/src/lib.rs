@@ -135,7 +135,7 @@ impl RawCellData {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PulseDuration(pub i32);
 
 impl PartialEq<bool> for Bit {

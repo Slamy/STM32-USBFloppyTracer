@@ -27,6 +27,12 @@ impl C64TrackParser {
     }
 }
 
+impl Default for C64TrackParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrackParser for C64TrackParser {
     fn default_file_extension(&self) -> &str {
         "d64"
@@ -101,10 +107,9 @@ impl TrackParser for C64TrackParser {
 
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
-                            if collected_sectors
+                            if !collected_sectors
                                 .iter()
-                                .find(|f| f.index == sector_header[1] as u32)
-                                .is_none()
+                                .any(|f| f.index == sector_header[1] as u32)
                             {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_data_block = 20;

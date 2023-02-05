@@ -139,7 +139,7 @@ pub fn parse_g64_image(path: &str) -> RawImage {
                 }
 
                 trackdata_copy = patch_trackdata(trackdata, &file_hashstr, track_index);
-                if trackdata_copy.len() == 0 {
+                if trackdata_copy.is_empty() {
                     continue;
                 }
             }

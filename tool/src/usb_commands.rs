@@ -186,7 +186,7 @@ pub fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_tr
             .unwrap();
 
         let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(" ").collect();
+        let response_split: Vec<&str> = response_text.split(' ').collect();
 
         match response_split[0] {
             "WrittenAndVerified" => {
@@ -228,7 +228,7 @@ pub fn wait_for_answer(
             .unwrap();
 
         let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(" ").collect();
+        let response_split: Vec<&str> = response_text.split(' ').collect();
 
         match response_split[0] {
             "WrittenAndVerified" => {

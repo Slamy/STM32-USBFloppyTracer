@@ -76,10 +76,8 @@ impl TrackParser for AmigaTrackParser {
                         // Did we get this sector yet?
                         let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
-                        if collected_sectors
-                            .iter()
-                            .find(|f| f.index == just_gotten_sector.index)
-                            .is_none()
+                        if !collected_sectors
+                            .iter().any(|f| f.index == just_gotten_sector.index)
                         {
                             collected_sectors.push(just_gotten_sector);
 

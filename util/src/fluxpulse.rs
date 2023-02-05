@@ -69,7 +69,7 @@ where
                 }
 
                 // End the state in expectation of following data
-                if (self.shift_word & 0b00011_000) != 0 {
+                if (self.shift_word & 0b0001_1000) != 0 {
                     self.special_generator_state = false;
                 }
             } else if self.enable_non_flux_reversal_generator {
@@ -78,7 +78,7 @@ where
 
                 // If we need to have a flux reversal here, make this reversal the one
                 // and change back to normal
-                if (self.shift_word & 0b00100_000) != 0 {
+                if (self.shift_word & 0b0010_0000) != 0 {
                     self.special_generator_state = false;
                 }
             }
@@ -86,7 +86,7 @@ where
         // with a window of 5 bitcells we can now perform write precompensation
         // we have 1 cell now, 2 cells in the past and 2 in the future.
         // use the center one as the current
-        else if (self.shift_word & 0b00100_000) != 0 {
+        else if (self.shift_word & 0b0010_0000) != 0 {
             if self.shift_word & 0b011111 == 0
                 && (self.enable_weak_bit_generator | self.enable_non_flux_reversal_generator)
             {

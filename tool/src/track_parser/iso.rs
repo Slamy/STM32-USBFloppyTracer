@@ -112,7 +112,7 @@ impl TrackParser for IsoTrackParser {
                         }
 
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                        crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfe]);
+                        crc.update(&[0xa1, 0xa1, 0xa1, 0xfe]);
                         crc.update(&sector_header);
                         let crc16 = crc.get();
                         if crc16 == 0 {
@@ -120,10 +120,8 @@ impl TrackParser for IsoTrackParser {
                             // Did we get this sector yet?
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
-                            if collected_sectors
-                                .iter()
-                                .find(|f| f.index == sector_header[2] as u32)
-                                .is_none()
+                            if !collected_sectors
+                                .iter().any(|f| f.index == sector_header[2] as u32)
                             {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_dam = 40;
@@ -147,7 +145,7 @@ impl TrackParser for IsoTrackParser {
                         }
 
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                        crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
+                        crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
                         crc.update(&sector_data);
                         let crc16 = crc.get();
                         if crc16 == 0 {

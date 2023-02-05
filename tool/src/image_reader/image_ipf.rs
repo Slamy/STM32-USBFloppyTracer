@@ -13,7 +13,7 @@ use util::{DensityMap, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
-    let mut current_val = *timebuf.get(0).unwrap();
+    let mut current_val = *timebuf.first().unwrap();
     let mut density_active_for: u32 = 0;
 
     let mut sparse_timebuf = Vec::new();
@@ -43,7 +43,7 @@ fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
         timebuf.len(),
         sparse_timebuf
             .iter()
-            .map(|f| (*f).number_of_cellbytes)
+            .map(|f| f.number_of_cellbytes)
             .sum()
     );
 
@@ -138,7 +138,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
 
                     let timebuf: Vec<u32> = if overlap == -1 {
                         // No overlap
-                        timebuf_orig.into()
+                        timebuf_orig
                     } else if overlap < 10 {
                         // Some images have the overlap at the beginning
                         timebuf_orig[1 + overlap as usize..].into()

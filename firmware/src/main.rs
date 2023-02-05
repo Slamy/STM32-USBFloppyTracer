@@ -261,7 +261,7 @@ fn mainloop(
                 let result = cm.block_on();
                 if let Err(err) = result {
                     let str_response = format!("Fail {:?}", err);
-                    if let Err(_) = usb_handler.response(&str_response) {
+                    if usb_handler.response(&str_response).is_err() {
                         rprintln!("Can't contact host. But that's ok...");
                     }
                 }
@@ -278,7 +278,7 @@ fn mainloop(
                         .response("WriteProtected")
                         .expect("Linux side will fail!");
                 } else {
-                    if let Err(_) = usb_handler.response("GotCmd") {
+                    if usb_handler.response("GotCmd").is_err() {
                         rprintln!("Can't contact host... linux side will fail probably");
                     }
 
@@ -322,7 +322,7 @@ fn mainloop(
                         ),
                     };
 
-                    if let Err(_) = usb_handler.response(&str_response) {
+                    if usb_handler.response(&str_response).is_err() {
                         rprintln!("Can't contact host. But that's ok...");
                     }
                 }

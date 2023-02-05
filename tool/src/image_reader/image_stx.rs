@@ -49,14 +49,10 @@ const gap3a_size: usize = 22; // Minimal allowed gap between sector header and d
 const gap3b_size: usize = 12; // 12x 0x00 before actual data
 
 fn patch_discard_sector(sector: &StxSector, file_hash_str: &str) -> bool {
-    match (file_hash_str, sector.idam_sector) {
-        ("4865957cd83562547a722c95e9a5421a", 16) => {
-            // Part of copy protection of Turrican
-            // Remove this sector as it is inside the data of sector 0!
-            true
-        }
-        _ => false, // Use the sector normally
-    }
+    matches!(
+        (file_hash_str, sector.idam_sector),
+        ("4865957cd83562547a722c95e9a5421a", 16)
+    )
 }
 
 fn patch_custom_sector<T>(
@@ -139,7 +135,7 @@ pub struct SectorTimingDeviation {
     pub cell_size_in_seconds: f64,
 }
 
-fn total_number_raw_bytes_deviation_map(deviation_map: &Vec<SectorTimingDeviation>) -> usize {
+fn total_number_raw_bytes_deviation_map(deviation_map: &[SectorTimingDeviation]) -> usize {
     deviation_map.iter().map(|f| f.number_of_raw_bytes).sum()
 }
 
@@ -335,8 +331,7 @@ fn convert_timing_deviation_to_densitymap(
         })
         .collect();
 
-    let densitymap = reduce_densitymap(densitymap);
-    densitymap
+    reduce_densitymap(densitymap)
 }
 
 fn process_track_record(
@@ -457,7 +452,7 @@ fn process_track_record(
         // Optional patching to remove sectors.
         // This is required in case a sector is inside another.
         // Turrican requires this.
-        if patch_discard_sector(sector, &file_hash_str) {
+        if patch_discard_sector(sector, file_hash_str) {
             continue;
         }
 
@@ -491,12 +486,12 @@ fn process_track_record(
 
         let custom_sector = patch_custom_sector(
             sector,
-            &file_hash_str,
+            file_hash_str,
             &mut encoder,
             &mut has_non_flux_reversal_area,
         );
 
-        if custom_sector == false {
+        if !custom_sector {
             // No special code required to fix this sector? Then do a normal ISO one.
 
             let sector_data =
@@ -537,8 +532,8 @@ fn process_track_record(
                 let timing_data = optional_timing_data.as_ref().unwrap();
 
                 let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                crc.update(&vec![0xa1, 0xa1, 0xa1, 0xfb]);
-                crc.update(&sector_data);
+                crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
+                crc.update(sector_data);
                 let crc16 = crc.get();
 
                 let sector_data_chunks = sector_data.chunks_exact(16);
@@ -561,9 +556,9 @@ fn process_track_record(
             } else if (sector.fdc_flags & (FDC_FLAG_CRC_ERROR | FDC_FLAG_RECORD_NOT_FOUND))
                 == FDC_FLAG_CRC_ERROR
             {
-                generate_iso_data_with_broken_crc(&sector_data, &mut encoder);
+                generate_iso_data_with_broken_crc(sector_data, &mut encoder);
             } else {
-                generate_iso_data_with_crc(&sector_data, &mut encoder);
+                generate_iso_data_with_crc(sector_data, &mut encoder);
             }
         }
 
@@ -595,7 +590,7 @@ fn process_track_record(
 
     let densitymap = convert_timing_deviation_to_densitymap(deviation_map);
 
-    assert!(densitymap.is_empty() == false);
+    assert!(!densitymap.is_empty());
 
     let track = RawTrack::new_with_non_flux_reversal_area(
         cylinder as u32,

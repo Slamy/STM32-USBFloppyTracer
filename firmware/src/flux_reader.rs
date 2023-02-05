@@ -62,8 +62,8 @@ impl FluxReader {
     pub fn start_reception(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[1];
 
-        assert!(dma_stream.cr.read().en().is_enabled() == false);
-        assert!(self.tim2.cr1.read().cen().is_enabled() == false);
+        assert!(!dma_stream.cr.read().en().is_enabled());
+        assert!(!self.tim2.cr1.read().cen().is_enabled());
 
         self.back_buffer.resize(BUFFER_SIZE, 0).unwrap();
         self.current_buffer.resize(BUFFER_SIZE, 0).unwrap();
@@ -109,8 +109,7 @@ impl FluxReader {
         tim2.cr1.modify(|_, w| w.dir().up()); // count up
 
         tim2.ccmr2_input().write(|w| w.cc3s().ti3()); // select active input.
-        // enable capture on falling edge on channel 3
-        tim2.ccer.write(|w| w.cc3e().set_bit().cc3p().set_bit());
+        tim2.ccer.write(|w| w.cc3e().set_bit().cc3p().set_bit()); // enable capture on falling edge on channel 3
         tim2.dier.write(|w| w.cc3de().enabled()); // DMA request for channel 3
 
         // allocate static global safe buffers for double buffering DMA

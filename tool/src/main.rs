@@ -64,18 +64,18 @@ struct Args {
 }
 
 fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: RawImage) {
-    let mut write_iterator = image.tracks.iter();
+    let write_iterator = image.tracks.iter();
     let mut verify_iterator = image.tracks.iter();
 
-    while let Some(write_track) = write_iterator.next() {
-        write_raw_track(&usb_handles, write_track);
-        wait_for_answer(&usb_handles, &mut verify_iterator);
+    for write_track in write_iterator {
+        write_raw_track(usb_handles, write_track);
+        wait_for_answer(usb_handles, &mut verify_iterator);
     }
 
     println!("All tracks written. Wait for remaining verifications!");
 
-    while let Some(verify_track) = verify_iterator.next() {
-        wait_for_last_answer(&usb_handles, &verify_track);
+    for verify_track in verify_iterator {
+        wait_for_last_answer(usb_handles, verify_track);
     }
 
     println!("--- Disk Image written and verified! ---")
@@ -141,7 +141,7 @@ fn write_debug_text_file(path: &str, image: RawImage) {
 fn main() {
     let cli = Args::parse();
 
-    let image = if cli.read == false {
+    let image = if !cli.read {
         let wprecomp_db = WritePrecompDb::new();
 
         // before the make contact to the USB device, we shall read the image first
@@ -153,7 +153,7 @@ fn main() {
         };
 
         if let Some(filter) = cli.track_filter.as_ref() {
-            let filter = TrackFilter::new(&filter);
+            let filter = TrackFilter::new(filter);
             image.filter_tracks(filter);
         }
 

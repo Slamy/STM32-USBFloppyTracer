@@ -2,7 +2,7 @@
 
 use crate::Bit;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GcrDecoderResult {
     Sync,
     Byte(u8),
