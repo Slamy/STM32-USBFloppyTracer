@@ -250,8 +250,12 @@ pub fn wait_for_answer(
             }
             "GotCmd" => break, // Continue with next track!
             "Fail" => panic!(
-                "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
-                response_split[1], response_split[2], response_split[3], response_split[4],
+                "Failed writing track {} head {} - num_writes:{}, num_reads:{} error:{}",
+                response_split[1],
+                response_split[2],
+                response_split[3],
+                response_split[4],
+                response_split[5],
             ),
             "WriteProtected" => panic!("Disk is write protected!"),
             _ => panic!("Unexpected answer from device: {}", response_text),

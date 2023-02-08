@@ -1,71 +1,51 @@
-use core::convert::Infallible;
+use core::{convert::Infallible, future::Future, pin::Pin};
 
 use alloc::boxed::Box;
+use cassette::Cassette;
 use rtt_target::rprintln;
 use stm32f4xx_hal::{
     gpio::PinState,
-    hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin},
+    hal::digital::v2::{InputPin, OutputPin},
 };
 use util::{Density, DriveSelectState, Track};
 
-#[derive(Clone, Copy, Debug)]
-enum StepState {
-    Idle,
-    SettingDirection(u8),
-    Stepping,
-    SettlingHead(u8),
-}
+use crate::{
+    floppy_drive_unit::{FloppyDriveUnit, HeadPosition},
+    floppy_stepper::FloppyStepperSignals,
+};
 
-enum MotorState {
-    Off,
-    On(u32),
-}
+type FutureHeadPosition =
+    Cassette<Pin<Box<dyn Future<Output = (FloppyStepperSignals, HeadPosition)> + Send>>>;
 
 pub struct FloppyControl {
-    out_motor_enable_a: Box<dyn OutputPin<Error = Infallible> + Send>,
-    out_drive_select_b: Box<dyn OutputPin<Error = Infallible> + Send>,
-    out_drive_select_a: Box<dyn OutputPin<Error = Infallible> + Send>,
-    out_motor_enable_b: Box<dyn OutputPin<Error = Infallible> + Send>,
-    out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
-    out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
-    in_track_00: Box<dyn InputPin<Error = Infallible> + Send>,
     out_head_select: Box<dyn OutputPin<Error = Infallible> + Send>,
     out_density_select: Box<dyn OutputPin<Error = Infallible> + Send>,
-
-    current_cylinder: Option<i32>,
-    wanted_cylinder: i32,
-    step_state: StepState,
-    motor_state: MotorState,
+    in_write_protect: Box<dyn InputPin<Error = Infallible> + Send>,
+    floppy_step_signals: Option<FloppyStepperSignals>,
+    floppy_step_progress: Option<FutureHeadPosition>,
+    drive_a: FloppyDriveUnit,
+    drive_b: FloppyDriveUnit,
     drive_select: DriveSelectState,
 }
 
 impl FloppyControl {
     pub fn new(
-        out_motor_enable_a: Box<dyn OutputPin<Error = Infallible> + Send>,
-        out_drive_select_b: Box<dyn OutputPin<Error = Infallible> + Send>,
-        out_drive_select_a: Box<dyn OutputPin<Error = Infallible> + Send>,
-        out_motor_enable_b: Box<dyn OutputPin<Error = Infallible> + Send>,
-        out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
-        out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
-        in_track_00: Box<dyn InputPin<Error = Infallible> + Send>,
+        drive_a: FloppyDriveUnit,
+        drive_b: FloppyDriveUnit,
+        stepper: FloppyStepperSignals,
         out_head_select: Box<dyn OutputPin<Error = Infallible> + Send>,
         out_density_select: Box<dyn OutputPin<Error = Infallible> + Send>,
+        in_write_protect: Box<dyn InputPin<Error = Infallible> + Send>,
     ) -> Self {
         Self {
-            out_motor_enable_a,
-            out_drive_select_b,
-            out_drive_select_a,
-            out_motor_enable_b,
-            out_step_direction,
-            out_step_perform,
-            in_track_00,
+            drive_a,
+            drive_b,
+            floppy_step_signals: Some(stepper),
+            floppy_step_progress: None,
+            drive_select: DriveSelectState::None,
             out_head_select,
             out_density_select,
-            current_cylinder: Some(0),
-            wanted_cylinder: 0,
-            step_state: StepState::Idle,
-            motor_state: MotorState::Off,
-            drive_select: DriveSelectState::None,
+            in_write_protect,
         }
     }
 
@@ -82,78 +62,68 @@ impl FloppyControl {
         }
     }
 
+    pub fn write_protection_is_active(&mut self) -> bool {
+        assert!(self
+            .selected_drive_unit()
+            .unwrap()
+            .selection_signal_active());
+        self.in_write_protect.is_low().unwrap()
+    }
+
     pub fn spin_motor(&mut self) {
-        match self.drive_select {
-            DriveSelectState::None => {}
-            DriveSelectState::A => {
-                self.out_motor_enable_a.set_low().unwrap();
-                self.out_drive_select_a.set_low().unwrap();
-            }
-            DriveSelectState::B => {
-                self.out_drive_select_b.set_low().unwrap();
-                self.out_motor_enable_b.set_low().unwrap();
-            }
+        if let Some(f) = self.selected_drive_unit().as_mut() {
+            f.spin_motor()
         }
-        self.motor_state = MotorState::On(800);
     }
 
     pub fn is_spinning(&self) -> bool {
-        matches!(self.motor_state, MotorState::On(_))
+        self.selected_drive_unit_ref()
+            .as_ref()
+            .map_or(false, |f| f.is_spinning())
+    }
+
+    pub fn selected_drive_unit(&mut self) -> Option<&mut FloppyDriveUnit> {
+        match self.drive_select {
+            DriveSelectState::None => None,
+            DriveSelectState::A => Some(&mut self.drive_a),
+            DriveSelectState::B => Some(&mut self.drive_b),
+        }
+    }
+
+    pub fn selected_drive_unit_ref(&self) -> Option<&FloppyDriveUnit> {
+        match self.drive_select {
+            DriveSelectState::None => None,
+            DriveSelectState::A => Some(&self.drive_a),
+            DriveSelectState::B => Some(&self.drive_b),
+        }
     }
 
     pub fn stop_motor(&mut self) {
-        match self.drive_select {
-            DriveSelectState::None => {}
-            DriveSelectState::A => {
-                self.out_motor_enable_a.set_high().unwrap();
-            }
-            DriveSelectState::B => {
-                self.out_motor_enable_b.set_high().unwrap();
-            }
+        if let Some(f) = self.selected_drive_unit() {
+            f.stop_motor()
         }
-        self.motor_state = MotorState::Off;
     }
 
     pub fn select_drive(&mut self, state: DriveSelectState) {
-        match state {
-            DriveSelectState::None => {
-                // stop everything.
-                self.out_drive_select_a.set_high().unwrap();
-                self.out_motor_enable_a.set_high().unwrap();
-
-                self.out_drive_select_b.set_high().unwrap();
-                self.out_motor_enable_b.set_high().unwrap();
-            }
-            DriveSelectState::A => {
-                // stop all drive B activities
-                self.out_drive_select_b.set_high().unwrap();
-                self.out_motor_enable_b.set_high().unwrap();
-
-                self.out_drive_select_a.set_low().unwrap();
-                rprintln!("Drive A selected!");
-            }
-            DriveSelectState::B => {
-                // stop all drive A activites
-                self.out_drive_select_a.set_high().unwrap();
-                self.out_motor_enable_a.set_high().unwrap();
-
-                self.out_drive_select_b.set_low().unwrap();
-                rprintln!("Drive B selected!");
-            }
-        }
-
         self.drive_select = state;
-
-        self.out_step_direction.set_high().unwrap();
-        self.out_step_perform.set_high().unwrap();
-        self.out_head_select.set_high().unwrap();
-
-        // cylinder is unknown. require track 00 first.
-        self.current_cylinder = None;
     }
 
     pub fn select_track(&mut self, track: Track) {
-        self.wanted_cylinder = track.cylinder.0 as i32;
+        let selected_drive = self.selected_drive_unit().unwrap();
+
+        let wanted_cylinder = track.cylinder.0 as u32;
+        if !selected_drive.head_position_equals(wanted_cylinder) {
+            let current_head_position = selected_drive.take_head_position_for_stepping();
+            let func = Box::pin(
+                self.floppy_step_signals
+                    .take()
+                    .unwrap()
+                    .step_to_cylinder(current_head_position, track.cylinder.0 as u32),
+            );
+
+            self.floppy_step_progress = Some(Cassette::new(func));
+        }
+
         self.out_head_select
             .set_state(if track.head.0 == 0 {
                 PinState::High
@@ -163,93 +133,24 @@ impl FloppyControl {
             .unwrap();
     }
 
-    pub fn get_current_cylinder(&self) -> i32 {
-        self.current_cylinder.unwrap_or(-1)
-    }
-
     pub fn reached_selected_cylinder(&self) -> bool {
-        matches!(self.step_state, StepState::Idle)
-            && self.wanted_cylinder == self.current_cylinder.unwrap_or(-1)
+        self.floppy_step_progress.is_none()
     }
 
-    fn step_machine(&mut self) {
-        self.step_state = match self.step_state {
-            StepState::Idle => {
-                if self.in_track_00.is_low().unwrap() {
-                    self.current_cylinder = Some(0);
-                }
-
-                if let Some(current_cylinder) = self.current_cylinder {
-                    if current_cylinder < self.wanted_cylinder
-                        && self.out_step_direction.is_set_high().unwrap()
-                    {
-                        // direction is wrong. set direction and give it time to settle
-                        self.out_step_direction.set_low().unwrap();
-                        StepState::SettingDirection(10)
-                    } else if current_cylinder > self.wanted_cylinder
-                        && self.out_step_direction.is_set_low().unwrap()
-                    {
-                        // direction is wrong. set direction and give it time to settle
-                        self.out_step_direction.set_high().unwrap();
-                        StepState::SettingDirection(10)
-                    } else if current_cylinder != self.wanted_cylinder {
-                        self.out_step_perform.set_low().unwrap();
-
-                        if current_cylinder < self.wanted_cylinder {
-                            *self.current_cylinder.as_mut().unwrap() += 1;
-                        } else {
-                            *self.current_cylinder.as_mut().unwrap() -= 1;
-                        }
-                        StepState::Stepping
-                    } else {
-                        StepState::Idle
-                    }
-                } else {
-                    // the current cylinder is not known. set the direction to outside and step
-                    self.out_step_direction.set_high().unwrap();
-                    self.out_step_perform.set_low().unwrap();
-                    StepState::Stepping
-                }
-            }
-            StepState::SettingDirection(cnt) => {
-                if cnt > 0 {
-                    StepState::SettingDirection(cnt - 1)
-                } else {
-                    StepState::Idle
-                }
-            }
-
-            StepState::SettlingHead(cnt) => {
-                if cnt > 0 {
-                    StepState::SettlingHead(cnt - 1)
-                } else {
-                    StepState::Idle
-                }
-            }
-
-            StepState::Stepping => {
-                self.out_step_perform.set_high().unwrap();
-
-                // Is this the cylinder which we want? Then allow the head to settle before doing anything else.
-                if let Some(current_cylinder) = self.current_cylinder && current_cylinder==self.wanted_cylinder {
-            StepState::SettlingHead(10)
-        }
-        else
-        {
-            StepState::Idle
-        }
-            }
-        }
-    }
     pub fn run(&mut self) {
-        if let MotorState::On(count) = self.motor_state {
-            if count > 0 {
-                self.motor_state = MotorState::On(count - 1);
-            } else {
-                self.stop_motor();
+        self.drive_a.run();
+        self.drive_b.run();
+
+        if let Some(cm) = self.floppy_step_progress.as_mut() {
+            if let Some(result) = cm.poll_on() {
+                let old = self.floppy_step_signals.replace(result.0);
+                assert!(old.is_none(), "Program flow error");
+                self.selected_drive_unit()
+                    .unwrap()
+                    .insert_current_head_position(result.1);
+
+                self.floppy_step_progress = None;
             }
         }
-
-        self.step_machine();
     }
 }

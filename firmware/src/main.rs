@@ -4,6 +4,8 @@
 
 pub mod custom_panic;
 pub mod floppy_control;
+pub mod floppy_drive_unit;
+pub mod floppy_stepper;
 pub mod flux_reader;
 pub mod flux_writer;
 pub mod index_sim;
@@ -29,7 +31,7 @@ use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, Pull, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
-use track_raw::RawTrackHandler;
+use track_raw::{RawTrackHandler, WriteVerifyError, WriteVerifySuccess};
 use usb::UsbHandler;
 use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
@@ -43,6 +45,9 @@ static INDEX_SIM: Mutex<RefCell<Option<IndexSim>>> = Mutex::new(RefCell::new(Non
 
 use alloc::sync::Arc;
 use alloc_cortex_m::CortexMHeap;
+
+use crate::floppy_drive_unit::FloppyDriveUnit;
+use crate::floppy_stepper::FloppyStepperSignals;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -63,7 +68,7 @@ fn main() -> ! {
 
     {
         use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 13509 * 7;
+        const HEAP_SIZE: usize = 13509 * 8;
         static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
         unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
     }
@@ -134,16 +139,21 @@ fn main() -> ! {
         .into_push_pull_output_in_state(stm32f4xx_hal::gpio::PinState::High);
     let _in_disk_change_ready = gpiob.pb12.into_pull_up_input();
 
-    let floppy_control = FloppyControl::new(
-        Box::new(out_motor_enable_a),
-        Box::new(out_drive_select_b),
-        Box::new(out_drive_select_a),
-        Box::new(out_motor_enable_b),
+    let drive_a = FloppyDriveUnit::new(Box::new(out_motor_enable_a), Box::new(out_drive_select_a));
+    let drive_b = FloppyDriveUnit::new(Box::new(out_motor_enable_b), Box::new(out_drive_select_b));
+    let stepper = FloppyStepperSignals::new(
         Box::new(out_step_direction),
         Box::new(out_step_perform),
         Box::new(in_track_00),
+    );
+
+    let floppy_control = FloppyControl::new(
+        drive_a,
+        drive_b,
+        stepper,
         Box::new(out_head_select),
         Box::new(out_density_select),
+        Box::new(in_write_protect),
     );
 
     let usb = USB {
@@ -227,14 +237,10 @@ fn main() -> ! {
         write_prod_cell: RefCell::new(write_prod),
     };
 
-    mainloop(usb_handler, raw_track_writer, in_write_protect);
+    mainloop(usb_handler, raw_track_writer);
 }
 
-fn mainloop(
-    mut usb_handler: UsbHandler,
-    mut raw_track_writer: RawTrackHandler,
-    in_write_protect: Pin<'B', 14>,
-) -> ! {
+fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) -> ! {
     let mut next_command: Option<usb::Command> = None;
 
     loop {
@@ -271,60 +277,63 @@ fn mainloop(
                 raw_cell_data,
                 write_precompensation,
             }) => {
-                if in_write_protect.is_low() {
-                    rprintln!("Write Protection is active!");
+                if usb_handler.response("GotCmd").is_err() {
+                    rprintln!("Can't contact host... linux side will fail probably");
+                }
 
-                    usb_handler
-                        .response("WriteProtected")
-                        .expect("Linux side will fail!");
-                } else {
-                    if usb_handler.response("GotCmd").is_err() {
-                        rprintln!("Can't contact host... linux side will fail probably");
+                cortex_m::interrupt::free(|cs| {
+                    interrupts::FLOPPY_CONTROL
+                        .borrow(cs)
+                        .borrow_mut()
+                        .as_mut()
+                        .unwrap()
+                        .spin_motor();
+                });
+
+                let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
+                    track,
+                    write_precompensation,
+                    raw_cell_data,
+                ));
+                let mut cm = Cassette::new(write_verify_fut);
+
+                let result = loop {
+                    usb_handler.handle();
+
+                    if let Some(result) = cm.poll_on() {
+                        break result;
                     }
+                };
 
-                    cortex_m::interrupt::free(|cs| {
-                        interrupts::FLOPPY_CONTROL
-                            .borrow(cs)
-                            .borrow_mut()
-                            .as_mut()
-                            .unwrap()
-                            .spin_motor();
-                    });
-
-                    let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
-                        track,
+                let str_response = match result {
+                    Ok(WriteVerifySuccess {
+                        write_operations,
+                        verify_operations,
+                        max_err,
                         write_precompensation,
-                        raw_cell_data,
-                    ));
-                    let mut cm = Cassette::new(write_verify_fut);
-
-                    let result = loop {
-                        usb_handler.handle();
-
-                        if let Some(result) = cm.poll_on() {
-                            break result;
-                        }
-                    };
-
-                    let str_response = match result {
-                        Ok((writes, verifies, max_err, write_precompensation)) => format!(
+                    }) => {
+                        format!(
                             "WrittenAndVerified {} {} {} {} {} {}",
                             track.cylinder.0,
                             track.head.0,
-                            writes,
-                            verifies,
+                            write_operations,
+                            verify_operations,
                             max_err.0,
                             write_precompensation.0
-                        ),
-                        Err((writes, verifies)) => format!(
-                            "Fail {} {} {} {}",
-                            track.cylinder.0, track.head.0, writes, verifies
-                        ),
-                    };
-
-                    if usb_handler.response(&str_response).is_err() {
-                        rprintln!("Can't contact host. But that's ok...");
+                        )
                     }
+                    Err(WriteVerifyError {
+                        write_operations,
+                        verify_operations,
+                        error,
+                    }) => format!(
+                        "Fail {} {} {} {} {:?}",
+                        track.cylinder.0, track.head.0, write_operations, verify_operations, error
+                    ),
+                };
+
+                if usb_handler.response(&str_response).is_err() {
+                    rprintln!("Can't contact host. But that's ok...");
                 }
             }
             _ => {}

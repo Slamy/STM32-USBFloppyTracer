@@ -51,7 +51,7 @@ impl TrackParser for AmigaTrackParser {
     }
 
     fn duration_to_record(&self) -> usize {
-        duration_of_rotation_as_stm_tim_raw(DRIVE_3_5_RPM) * 115 / 100
+        duration_of_rotation_as_stm_tim_raw(DRIVE_3_5_RPM) * 110 / 100
     }
 
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
@@ -77,7 +77,8 @@ impl TrackParser for AmigaTrackParser {
                         let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
                         if !collected_sectors
-                            .iter().any(|f| f.index == just_gotten_sector.index)
+                            .iter()
+                            .any(|f| f.index == just_gotten_sector.index)
                         {
                             collected_sectors.push(just_gotten_sector);
 

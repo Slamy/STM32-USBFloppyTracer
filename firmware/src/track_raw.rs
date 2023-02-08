@@ -10,10 +10,10 @@ use util::{
 
 use crate::{
     interrupts::{
-        self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_transmit,
+        self, async_select_and_wait_for_track, async_wait_for_receive, async_wait_for_transmit,
         flux_reader_stop_reception, FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
-    orange, rprintln,
+    rprintln,
     usb::UsbHandler,
 };
 
@@ -28,6 +28,20 @@ pub enum RawTrackError {
     NoIncomingData,
     NoCrossCorrelation,
     DataNotEqual,
+    WriteProtected,
+}
+
+pub struct WriteVerifyError {
+    pub error: RawTrackError,
+    pub write_operations: u8,
+    pub verify_operations: u8,
+}
+
+pub struct WriteVerifySuccess {
+    pub write_operations: u8,
+    pub verify_operations: u8,
+    pub write_precompensation: PulseDuration,
+    pub max_err: PulseDuration,
 }
 
 impl RawTrackHandler {
@@ -60,11 +74,29 @@ impl RawTrackHandler {
         track: Track,
         write_precompensation: PulseDuration,
         mut raw_cell_data: RawCellData,
-    ) -> Result<(u8, u8, PulseDuration, PulseDuration), (u8, u8)> {
+    ) -> Result<WriteVerifySuccess, WriteVerifyError> {
         async_select_and_wait_for_track(track).await;
+
+        let write_protected = cortex_m::interrupt::free(|cs| {
+            interrupts::FLOPPY_CONTROL
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .write_protection_is_active()
+        });
 
         let mut write_operations = 0;
         let mut verify_operations = 0;
+
+        if write_protected {
+            rprintln!("Write Protected!");
+            return Err(WriteVerifyError {
+                write_operations,
+                verify_operations,
+                error: RawTrackError::WriteProtected,
+            });
+        }
 
         for _ in 0..5 {
             rprintln!(
@@ -77,7 +109,11 @@ impl RawTrackHandler {
             raw_cell_data = self
                 .write_track(write_precompensation, raw_cell_data)
                 .await
-                .map_err(|_| (write_operations, verify_operations))?;
+                .map_err(|error| WriteVerifyError {
+                    write_operations,
+                    verify_operations,
+                    error,
+                })?;
 
             for read_try in 0..3 {
                 verify_operations += 1;
@@ -86,12 +122,12 @@ impl RawTrackHandler {
 
                 match verify_result {
                     Ok(max_err) => {
-                        return Ok((
+                        return Ok(WriteVerifySuccess {
                             write_operations,
                             verify_operations,
                             max_err,
                             write_precompensation,
-                        ));
+                        });
                     }
                     Err((RawTrackError::DataNotEqual, track)) => {
                         // We shall do nothing. Maybe it was a fluke?
@@ -115,23 +151,38 @@ impl RawTrackHandler {
                     }
                     Err((RawTrackError::NoIncomingData, _track)) => {
                         // Abort. Drive not responding
-                        return Err((write_operations, verify_operations));
+                        return Err(WriteVerifyError {
+                            write_operations,
+                            verify_operations,
+                            error: RawTrackError::NoIncomingData,
+                        });
                     }
                     Err((RawTrackError::NoIndexPulse, _track)) => {
                         // Abort. Drive not responding
-                        return Err((write_operations, verify_operations));
+                        return Err(WriteVerifyError {
+                            write_operations,
+                            verify_operations,
+                            error: RawTrackError::NoIndexPulse,
+                        });
+                    }
+                    Err((RawTrackError::WriteProtected, _)) => {
+                        panic!("Program flow error")
                     }
                 }
             }
         }
-        Err((write_operations, verify_operations))
+        Err(WriteVerifyError {
+            write_operations,
+            verify_operations,
+            error: RawTrackError::DataNotEqual,
+        })
     }
 
     async fn write_track(
         &mut self,
         write_precompensation: PulseDuration,
         track_data_to_write: RawCellData,
-    ) -> Result<RawCellData, ()> {
+    ) -> Result<RawCellData, RawTrackError> {
         // keep it spinning!
         cortex_m::interrupt::free(|cs| {
             interrupts::FLUX_WRITER
@@ -207,7 +258,7 @@ impl RawTrackHandler {
 
         if async_wait_for_transmit().await.is_err() {
             rprintln!("Transmit timeout? Drive not responsing.");
-            return Err(());
+            return Err(RawTrackError::NoIndexPulse);
         }
 
         // continue until whole track is written.
@@ -269,7 +320,7 @@ impl RawTrackHandler {
             cortex_m::interrupt::free(|cs| {
                 START_RECEIVE_ON_INDEX.borrow(cs).set(true);
             });
-            if async_wait_for_index().await.is_err() {
+            if async_wait_for_receive().await.is_err() {
                 return Err(RawTrackError::NoIndexPulse);
             };
         } else {
@@ -456,7 +507,7 @@ impl RawTrackHandler {
             START_RECEIVE_ON_INDEX.borrow(cs).set(true);
         });
 
-        if async_wait_for_index().await.is_err() {
+        if async_wait_for_receive().await.is_err() {
             return Err((RawTrackError::NoIndexPulse, track_data_to_write));
         };
 
@@ -559,7 +610,6 @@ impl RawTrackHandler {
                 // It is also pretty random. Sometimes it doesn't work at all.
                 flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
             } else if !reference.similar(&readback, similarity_treshold) {
-                orange(true);
                 flux_reader_stop_reception();
                 rprintln!(
                     "{} != {}, successful_compares until compare fail: {}",
@@ -567,7 +617,6 @@ impl RawTrackHandler {
                     readback.0,
                     successful_compares
                 );
-                orange(false);
 
                 return Err((RawTrackError::DataNotEqual, track_data_to_write));
             } else {
@@ -579,6 +628,7 @@ impl RawTrackHandler {
         mem::drop(read_mfm_flux_data_queue);
 
         // we got rid of the queue. Now do the same with live data until everything was verified.
+        // TODO Copy pasta
         loop {
             generate_groundtruth();
 
@@ -596,7 +646,6 @@ impl RawTrackHandler {
                     // It is also pretty random. Sometimes it doesn't work at all.
                     flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
                 } else if !reference.similar(&PulseDuration(readback as i32), similarity_treshold) {
-                    orange(true);
                     flux_reader_stop_reception();
                     rprintln!(
                         "{} != {}, successful_compares until compare fail: {}",
@@ -604,7 +653,6 @@ impl RawTrackHandler {
                         readback,
                         successful_compares
                     );
-                    orange(false);
 
                     return Err((RawTrackError::DataNotEqual, track_data_to_write));
                 } else {
@@ -619,7 +667,7 @@ impl RawTrackHandler {
 
         flux_reader_stop_reception();
         rprintln!(
-            "Verified {} pulses, Max error {} / {}, window match offset {}",
+            "Verified {} pulses, max error {}/{}, match offset {}",
             successful_compares,
             maximum_diff,
             similarity_treshold,
