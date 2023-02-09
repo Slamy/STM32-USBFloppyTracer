@@ -79,7 +79,10 @@ impl IsoGeometry {
                 gap3a_size: 22,
                 gap3b_size: 12,
                 gap4_size: 40,
-                gap5_size: 650,
+                //usually it would be 664 but this makes the verification slower
+                //My drive requires 588 microseconds to recover after writing
+                // to read again. In this time we are already at index.
+                gap5_size: 600,
                 sectors_per_track,
                 interleaving: 0,
             },

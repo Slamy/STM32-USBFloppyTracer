@@ -5,7 +5,7 @@ use cassette::futures::poll_fn;
 use heapless::spsc::{Consumer, Producer};
 
 use util::{
-    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, PulseDuration, RawCellData, Track,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, PulseDuration, RawCellData, Track,
 };
 
 use crate::{
@@ -284,6 +284,18 @@ impl RawTrackHandler {
                 }
                 to_bit_stream(*mfm_byte, |bit| write_prod_fpg.feed(bit));
             }
+        }
+
+        /* Now this might be weird. We have to solve an issue here with our DMA.
+         * At the moment, we erase the end of the track before writing to keep it clean
+         * from any residual data. But this also means that we don't have any pulses
+         * for reading after our groundtruth data. We need to add as many pulses here
+         * as the reading DMA buffer is in length to fix this problem.
+         * Otherwise reading will stall and slow us down for exactly one rotation of the disk.
+         */
+        for _ in 0..crate::flux_reader::BUFFER_SIZE {
+            write_prod_fpg.feed(Bit(false));
+            write_prod_fpg.feed(Bit(true));
         }
 
         write_prod_fpg.flush();

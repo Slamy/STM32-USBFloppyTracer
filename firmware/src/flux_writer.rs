@@ -9,7 +9,7 @@ use stm32f4xx_hal::hal::digital::v2::OutputPin;
 
 use stm32f4xx_hal::pac::{DMA1, TIM4};
 
-const BUFFER_SIZE: usize = 16;
+pub const BUFFER_SIZE: usize = 16;
 
 // Trackbuffer -> BitStream -> MfmEncoder -> FluxWriter
 
@@ -173,8 +173,8 @@ impl FluxWriter {
 
         self.tim4.sr.write(|w| w.uif().clear()); // Clear interrupt
 
-        self.tim4.cnt.write(|w| w.cnt().bits(800)); // reset count to 0
-        self.tim4.arr.write(|w| w.arr().bits(800)); // count to 200 and reset
+        self.tim4.cnt.write(|w| w.cnt().bits(400)); // reset count to 0
+        self.tim4.arr.write(|w| w.arr().bits(400)); // count to 200 and reset
     }
 
     pub fn enable_write_head(&mut self) {

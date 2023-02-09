@@ -7,7 +7,7 @@ use heapless::Vec;
 
 use stm32f4xx_hal::pac::{DMA1, TIM2};
 
-const BUFFER_SIZE: usize = 8;
+pub const BUFFER_SIZE: usize = 8;
 
 /*
  * Input using Timer 2, Input Channel 3.

@@ -109,7 +109,7 @@ mod tests {
     #[case( // 11 - Atari ST Raw ISO Image
         "../images/Rodland (1991)(Sales Curve)[cr Alien][t].st",
         "a1ee8d4fdcf05b562d990267052965c2",
-        "296b56f9589370e629095ff850dab482"
+        "63ae9182461c8a9e34c202cbf4332e00"
     )]
     fn known_image_regression_test(
         #[case] filepath: &str,
