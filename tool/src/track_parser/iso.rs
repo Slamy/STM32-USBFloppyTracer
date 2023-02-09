@@ -54,7 +54,11 @@ impl TrackParser for IsoTrackParser {
             None => DRIVE_SLOWEST_RPM,
         };
 
-        duration_of_rotation_as_stm_tim_raw(rpm) * 110 / 100
+        let percent = match self.density {
+            Density::High => 106,
+            Density::SingleDouble => 110,
+        };
+        duration_of_rotation_as_stm_tim_raw(rpm) * percent / 100
     }
 
     fn track_density(&self) -> Density {
@@ -121,7 +125,8 @@ impl TrackParser for IsoTrackParser {
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
                             if !collected_sectors
-                                .iter().any(|f| f.index == sector_header[2] as u32)
+                                .iter()
+                                .any(|f| f.index == sector_header[2] as u32)
                             {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_dam = 40;
@@ -176,7 +181,11 @@ impl TrackParser for IsoTrackParser {
         ensure!(self.collected_sectors.as_ref().unwrap().is_empty() == false);
 
         self.assumed_disk_type.get_or_insert_with(|| {
-            if number_of_duplicate_sector_headers_found_in_stream > 3 {
+            println!(
+                "Number of duplicate sectors in stream: {}",
+                number_of_duplicate_sector_headers_found_in_stream
+            );
+            if number_of_duplicate_sector_headers_found_in_stream > 5 {
                 println!("Assume 5.25 inch drive.");
                 DiskType::Inch5_25
             } else {

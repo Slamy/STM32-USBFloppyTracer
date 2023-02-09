@@ -41,10 +41,7 @@ fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
     // ensure that the lengths do match up!
     assert_eq!(
         timebuf.len(),
-        sparse_timebuf
-            .iter()
-            .map(|f| f.number_of_cellbytes)
-            .sum()
+        sparse_timebuf.iter().map(|f| f.number_of_cellbytes).sum()
     );
 
     sparse_timebuf

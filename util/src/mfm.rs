@@ -32,7 +32,7 @@ const ISO_SYNC_WORD: u16 = 0x4489;
 
  Gap Byte 0x4e as Mfm Word 0x9254
  Data  0 1 0 0 1 1 1 0
- Clk  1 0 0 1 0 1 0 0
+ Clk  1 0 0 1 0 0 0 0
  MFM  1001001001010100
 */
 impl<T> MfmEncoder<T>

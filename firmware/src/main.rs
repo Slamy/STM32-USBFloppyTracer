@@ -267,9 +267,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                 let result = cm.block_on();
                 if let Err(err) = result {
                     let str_response = format!("Fail {:?}", err);
-                    if usb_handler.response(&str_response).is_err() {
-                        rprintln!("Can't contact host. But that's ok...");
-                    }
+                    usb_handler.response(&str_response);
                 }
             }
             Some(usb::Command::WriteVerifyRawTrack {
@@ -277,9 +275,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                 raw_cell_data,
                 write_precompensation,
             }) => {
-                if usb_handler.response("GotCmd").is_err() {
-                    rprintln!("Can't contact host... linux side will fail probably");
-                }
+                usb_handler.response("GotCmd");
 
                 cortex_m::interrupt::free(|cs| {
                     interrupts::FLOPPY_CONTROL
@@ -332,9 +328,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                     ),
                 };
 
-                if usb_handler.response(&str_response).is_err() {
-                    rprintln!("Can't contact host. But that's ok...");
-                }
+                usb_handler.response(&str_response);
             }
             _ => {}
         }

@@ -334,11 +334,7 @@ impl RawTrackHandler {
             });
         }
         let mut collect_buffer: Vec<u8> = Vec::with_capacity(64);
-        let mut usb_frames_transferred = 0;
         let mut usb_frames_collected = 0;
-
-        let mut buffers: VecDeque<Vec<u8>> = VecDeque::new();
-        let mut max_slack = 0;
 
         let mut timeout = 0;
         let mut duration_yet_recorded = 0;
@@ -353,19 +349,8 @@ impl RawTrackHandler {
         }
         self.async_read_flux().await;
 
-        while usb_frames_transferred < usb_frames_collected || !required_duration_was_recorded {
-            // Some data to send?
-            if let Some(front) = buffers.front() {
-                if let Ok(size) = usb_handler.write(front) {
-                    assert_eq!(size, 64);
-
-                    max_slack = max_slack.max(buffers.len());
-                    buffers.pop_front();
-                    usb_frames_transferred += 1;
-                }
-                usb_handler.handle();
-            }
-
+        while !required_duration_was_recorded {
+            usb_handler.handle();
             // Polling the USB buffers just takes too much time.
             // We shall at least process 5 incoming pulses until we check
             // USB again. With HD disks there is just not enough time.
@@ -390,8 +375,7 @@ impl RawTrackHandler {
                     if collect_buffer.len() == 64 {
                         let new_buffer: Vec<u8> = Vec::with_capacity(64);
                         let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
-                        buffers.push_back(old_buffer);
-
+                        usb_handler.write_consume(old_buffer);
                         usb_frames_collected += 1;
 
                         if duration_yet_recorded >= duration_to_record {
@@ -415,21 +399,14 @@ impl RawTrackHandler {
         }
 
         // Send empty end package
-        loop {
-            if let Ok(size) = usb_handler.write(&[0; 0]) {
-                assert_eq!(size, 0);
-                break;
-            }
-            usb_handler.handle();
-        }
+        usb_handler.write(&[0; 0]);
+        usb_handler.handle();
 
         rprintln!(
-            "{} {} Collected {} {} blocks! {}   {} {}",
+            "{} {} Collected {} {} blocks! {}",
             track.cylinder.0,
             track.head.0,
-            usb_frames_transferred,
             usb_frames_collected,
-            max_slack,
             duration_yet_recorded,
             duration_to_record
         );

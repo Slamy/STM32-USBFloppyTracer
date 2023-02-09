@@ -1,6 +1,6 @@
 use core::{cell::RefCell, convert::TryInto};
 
-use alloc::vec::Vec;
+use alloc::{collections::VecDeque, vec::Vec};
 use cortex_m::interrupt::Mutex;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
@@ -38,6 +38,7 @@ pub struct UsbHandler<'a> {
     head: u32,
     has_non_flux_reversal_area: bool,
     write_precompensation: PulseDuration,
+    tx_buffer: VecDeque<Vec<u8>>,
 }
 
 impl UsbHandler<'_> {
@@ -56,36 +57,36 @@ impl UsbHandler<'_> {
             head: 0,
             has_non_flux_reversal_area: false,
             write_precompensation: PulseDuration(0),
+            tx_buffer: VecDeque::new(),
         }
     }
 
-    pub fn response(&mut self, text: &str) -> Result<(), UsbError> {
+    pub fn response(&mut self, text: &str) {
         assert!(text.len() < 60);
 
-        // TODO find better solution!
-        for _try in 0..2000 {
-            let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
-            match serial.write_packet(text.as_bytes()) {
-                Ok(len) if len > 0 => {
-                    return Ok(()); // All went well
-                }
-                _ => {
-                    //rprintln!("Response has failed!");
-                }
-            }
-            self.handle();
-        }
-        Err(UsbError::WouldBlock)
+        let buf = text.as_bytes().into();
+        self.tx_buffer.push_back(buf);
     }
 
-    pub fn write(&mut self, data: &[u8]) -> Result<usize, UsbError> {
+    pub fn write(&mut self, data: &[u8]) {
         assert!(data.len() <= 64);
-        let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
-        serial.write_packet(data)
+        self.tx_buffer.push_back(data.into());
+    }
+
+    pub fn write_consume(&mut self, data: Vec<u8>) {
+        assert!(data.len() <= 64);
+        self.tx_buffer.push_back(data);
     }
 
     pub fn handle(&mut self) {
         let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
+
+        // Some data to send?
+        if let Some(front) = self.tx_buffer.front() {
+            if serial.write_packet(front).is_ok() {
+                self.tx_buffer.pop_front();
+            }
+        }
 
         if self.usb_dev.poll(&mut [serial]) {
             let mut buf = [0u8; 64];
