@@ -119,9 +119,7 @@ impl RawTrack {
             util::Encoding::MFM => self.densitymap[0].cell_size.0 + 40,
         };
 
-        // TODO avoid the clone
-        let cell_data =
-            RawCellData::construct(self.densitymap.clone(), self.raw_data.clone(), false);
+        let cell_data_parts = RawCellData::split_in_parts(&self.densitymap, &self.raw_data);
         let track_offset = RefCell::new(0);
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
@@ -168,7 +166,7 @@ impl RawTrack {
             write_prod_fpg.feed(Bit(false));
         }
 
-        for part in cell_data.borrow_parts() {
+        for part in cell_data_parts {
             write_prod_fpg.cell_duration = part.cell_size.0 as u32;
 
             for cell_byte in part.cells {

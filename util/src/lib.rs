@@ -67,6 +67,8 @@ pub const DRIVE_SLOWEST_RPM: f64 = DRIVE_3_5_RPM; // If the drive is not known, 
 pub const STM_TIMER_MHZ: f64 = 84.0;
 pub const STM_TIMER_HZ: f64 = 84e6;
 
+pub const PULSE_REDUCE_SHIFT: usize = 3;
+
 pub fn duration_of_rotation_as_stm_tim_raw(rpm: f64) -> usize {
     (60.0 / rpm * STM_TIMER_HZ) as usize
 }
@@ -92,44 +94,37 @@ pub struct RawCellData {
     pub speeds: DensityMap,
     pub cells: Vec<u8>,
     pub has_non_flux_reversal_area: bool,
-    #[borrows(cells)]
+    #[borrows(cells, speeds)]
     #[covariant]
     pub parts: Vec<RawCellPart<'this>>,
 }
 
 impl RawCellData {
-    pub fn construct(speeds: DensityMap, cells: Vec<u8>, has_non_flux_reversal_area: bool) -> Self {
-        let speeds2 = speeds.clone();
+    pub fn split_in_parts<'a>(speeds: &'a DensityMap, cells: &'a [u8]) -> Vec<RawCellPart<'a>> {
+        let mut parts: Vec<RawCellPart> = Vec::new();
 
+        let mut offset = 0;
+        for speed in speeds.iter() {
+            let entry = RawCellPart {
+                cell_size: speed.cell_size,
+                cells: &cells[offset..speed.number_of_cellbytes + offset],
+            };
+            parts.push(entry);
+
+            offset += speed.number_of_cellbytes;
+        }
+
+        // just to be sure that the separate parts in sum are equal to the total number
+        assert_eq!(offset, cells.len());
+
+        parts
+    }
+    pub fn construct(speeds: DensityMap, cells: Vec<u8>, has_non_flux_reversal_area: bool) -> Self {
         RawCellDataBuilder {
             speeds,
             cells,
             has_non_flux_reversal_area,
-
-            // Note that the name of the field in the builder
-            // is the name of the field in the struct + `_builder`
-            // ie: {field_name}_builder
-            // the closure that assigns the value for the field will be passed
-            // a reference to the field(s) defined in the #[borrows] macro
-            parts_builder: |cells| {
-                let mut parts: Vec<RawCellPart> = Vec::new();
-
-                let mut offset = 0;
-                for speed in speeds2.iter() {
-                    let entry = RawCellPart {
-                        cell_size: speed.cell_size,
-                        cells: &cells[offset..speed.number_of_cellbytes + offset],
-                    };
-                    parts.push(entry);
-
-                    offset += speed.number_of_cellbytes;
-                }
-
-                // just to be sure that the separate parts in sum are equal to the total number
-                assert_eq!(offset, cells.len());
-
-                parts
-            },
+            parts_builder: |cells, speeds| RawCellData::split_in_parts(speeds, cells),
         }
         .build()
     }

@@ -4,6 +4,7 @@ use util::{
     fluxpulse::FluxPulseToCells,
     mfm::{MfmDecoder, MfmWord},
     Density, DiskType, PulseDuration, DRIVE_3_5_RPM, DRIVE_5_25_RPM, DRIVE_SLOWEST_RPM,
+    PULSE_REDUCE_SHIFT,
 };
 
 use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
@@ -85,10 +86,9 @@ impl TrackParser for IsoTrackParser {
 
         let mut pulseparser = FluxPulseToCells::new(|val| mfmd.feed(val), cellsize);
 
-        // TODO magic number
         track
             .iter()
-            .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << 3)));
+            .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << PULSE_REDUCE_SHIFT)));
 
         let mut iterator = mfm_words.iter();
 

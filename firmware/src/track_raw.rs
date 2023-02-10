@@ -5,7 +5,8 @@ use cassette::futures::poll_fn;
 use heapless::spsc::{Consumer, Producer};
 
 use util::{
-    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, PulseDuration, RawCellData, Track,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, PulseDuration, RawCellData,
+    Track, PULSE_REDUCE_SHIFT,
 };
 
 use crate::{
@@ -178,6 +179,23 @@ impl RawTrackHandler {
         })
     }
 
+    async fn feed_mfm_raw_iterator_to_writer<T>(
+        &self,
+        track_data_iter: core::slice::Iter<'_, u8>,
+        write_prod_fpg: &mut FluxPulseGenerator<T>,
+    ) where
+        T: FnMut(PulseDuration),
+    {
+        for mfm_byte in track_data_iter {
+            assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
+
+            while self.write_prod_cell.borrow().len() > 70 {
+                cassette::yield_now().await;
+            }
+            to_bit_stream(*mfm_byte, |bit| write_prod_fpg.feed(bit));
+        }
+    }
+
     async fn write_track(
         &mut self,
         write_precompensation: PulseDuration,
@@ -262,28 +280,15 @@ impl RawTrackHandler {
         }
 
         // continue until whole track is written.
-        // TODO copy pasta
-        for mfm_byte in track_data_iter {
-            assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
-
-            while self.write_prod_cell.borrow().len() > 70 {
-                cassette::yield_now().await;
-            }
-            to_bit_stream(*mfm_byte, |bit| write_prod_fpg.feed(bit));
-        }
+        self.feed_mfm_raw_iterator_to_writer(track_data_iter, &mut write_prod_fpg)
+            .await;
 
         for part in parts {
             let track_data_iter = part.cells.iter();
 
             write_prod_fpg.cell_duration = part.cell_size.0 as u32;
-            for mfm_byte in track_data_iter {
-                assert!(self.write_prod_cell.borrow().len() > 20); // check for underflow
-
-                while self.write_prod_cell.borrow().len() > 70 {
-                    cassette::yield_now().await;
-                }
-                to_bit_stream(*mfm_byte, |bit| write_prod_fpg.feed(bit));
-            }
+            self.feed_mfm_raw_iterator_to_writer(track_data_iter, &mut write_prod_fpg)
+                .await;
         }
 
         /* Now this might be weird. We have to solve an issue here with our DMA.
@@ -370,8 +375,7 @@ impl RawTrackHandler {
                 if let Some(pulse) = self.read_cons.dequeue() {
                     timeout = 0;
                     duration_yet_recorded += pulse;
-                    // TODO magic number
-                    let mut reduced_pulse = pulse >> 3;
+                    let mut reduced_pulse = pulse >> PULSE_REDUCE_SHIFT;
 
                     if pulse & 0b100 != 0 {
                         //round up
