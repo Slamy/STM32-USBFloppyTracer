@@ -26,7 +26,7 @@ impl RawImage {
             } else {
                 true
             }) && (if let Some(head) = filter.head {
-                f.head <= head
+                f.head == head
             } else {
                 true
             })
@@ -265,6 +265,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
     println!("{:x?}", sector_data);
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct TrackFilter {
     pub cyl_start: Option<u32>,
     pub cyl_end: Option<u32>,

@@ -80,19 +80,68 @@ In the end, I just love floppy disks and wanted to use this project to learn Rus
 
 ## Usage
 
-Help is provided by the tool itself
+Some help is provided by the tool itself:
 
     usbfloppytracer -h
 
-Assuming drive A is a 3.5" drive: Writing of Amiga images
+### Writing images to disk
 
-    usbfloppytracer -a Turrican.adf
-    usbfloppytracer -a Turrican.ipf
+Assuming drive A is a 3.5" drive:
 
-Assuming drive B is a 5.25" drive: Writing of C64 images
+    usbfloppytracer -a image.adf
+    usbfloppytracer -a image.ipf
+    usbfloppytracer -a image.st
+    usbfloppytracer -a image.stx
+    usbfloppytracer -a image.img # Expected to be an ISO / IBM image
 
-    usbfloppytracer -b Katakis_s1.g64
-    usbfloppytracer -b Katakis_s1.d64
+Assuming drive B is a 5.25" drive:
+
+    usbfloppytracer -b image.g64
+    usbfloppytracer -b image.d64
+    usbfloppytracer -b image.img # Expected to be an ISO / IBM image
+
+It's possible to specify which tracks shall be written. The cylinders start
+counting with 0 and the filter is inclusive.
+
+    usbfloppytracer -a empty.adf -t8   # Write only cylinder 8 on both heads
+    usbfloppytracer -a empty.adf -t8:0 # Write only cylinder 8 on head 0
+    usbfloppytracer -a empty.adf -t8:1 # Write only cylinder 8 on head 1
+    usbfloppytracer -a empty.adf -t-3  # Write cylinders 0 to 3 (4 cylinders)
+    usbfloppytracer -a empty.adf -t70- # Write cylinders 70 to end of image
+
+### Reading from disk to image
+
+This tool can't be used to create copy protected masters for writing.
+It should be noted that the number of tracks is not analyzed and can result in a shorter image
+than expected. This can be especially a problem for non standard Atari ST disks.
+If in doubt, read more tracks usual. Unformatted tracks will be discarded during reading process.
+In case of the ISO format, the number of sectors per track is however checked.
+
+    usbfloppytracer -r -a image.adf
+    usbfloppytracer -r -a image.st
+    usbfloppytracer -r -b image.d64
+    usbfloppytracer -r -a image.img
+
+It's possible to specify which tracks shall be read. The filter is again inclusive.
+
+    usbfloppytracer -r -a image.st -t82 # Read the first 82 cylinders
+    usbfloppytracer -r -a image.st -t-2 # Read cylinder 0 to 2 (3 cylinders)
+    usbfloppytracer -r -a image.st -t2-3 # Read cylinder 2 to 3 (2 cylinders)
+
+Inspect the disk for the format:
+
+    cargo run --  -r -a discover
+    cargo run --  -r -b discover
+
+Just read whatever is there and decide the format for the user.
+The name of the image will be the current time and date.
+Amiga disks are written to .adf, ISO DD to .st, ISO HD to .img
+and C64 disks are written to .d64 files.
+
+    cargo run --  -r -a justread
+    cargo run --  -r -b justread
+
+### Write Precompensation
 
 For proper write precompensation, another [document](doc/write_precompensation.md) was added to explain the process.
 

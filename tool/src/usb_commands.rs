@@ -220,6 +220,7 @@ pub fn wait_for_answer(
     let (handle, endpoint_in, _endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
+    // TODO copy pasta
     loop {
         let mut in_buf = [0u8; 64];
 
