@@ -16,13 +16,13 @@ use crate::rawtrack::RawTrack;
 // https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
 // http://info-coach.fr/atari/software/FD-Soft.php
 
-const HEADS: u32 = 2;
-const BYTES_PER_SECTOR: u32 = 512;
+const HEADS: usize = 2;
+const BYTES_PER_SECTOR: usize = 512;
 
-const POSSIBLE_CYLINDER_COUNTS: [u32; 10] = [38, 39, 40, 41, 42, 78, 79, 80, 81, 82];
-const POSSIBLE_SECTOR_COUNTS: [u32; 5] = [9, 10, 11, 15, 18];
+const POSSIBLE_CYLINDER_COUNTS: [usize; 10] = [38, 39, 40, 41, 42, 78, 79, 80, 81, 82];
+const POSSIBLE_SECTOR_COUNTS: [usize; 5] = [9, 10, 11, 15, 18];
 
-fn calculate_floppy_geometry(number_bytes: u32) -> (u32, u32) {
+fn calculate_floppy_geometry(number_bytes: usize) -> (usize, usize) {
     // Iterate first over sectors and then over cylinders
     // This favors 80 cyl/9 sec over 40 cyl/18 sec which could make sense
     // but doesn't really...
@@ -37,19 +37,19 @@ fn calculate_floppy_geometry(number_bytes: u32) -> (u32, u32) {
     panic!()
 }
 
-struct IsoGeometry {
-    sectors_per_track: u32,
-    gap1_size: i32,    // after index pulse, 60x 0x4E
-    gap2_size: i32,    // 12x 0x00 before sector header
-    gap3a_size: i32,   // 22x 0x4E after sector header
-    gap3b_size: i32,   // 12x 0x00 before actual data
-    gap4_size: i32,    // 40x 0x4E after data
-    gap5_size: i32,    // ends the track, not really sure what this value shall be...
-    interleaving: u32, // with 0 no interleaving applied
+pub struct IsoGeometry {
+    pub sectors_per_track: usize,
+    pub gap1_size: i32,    // after index pulse, 60x 0x4E
+    pub gap2_size: i32,    // 12x 0x00 before sector header
+    pub gap3a_size: i32,   // 22x 0x4E after sector header
+    pub gap3b_size: i32,   // 12x 0x00 before actual data
+    pub gap4_size: i32,    // 40x 0x4E after data
+    pub gap5_size: i32,    // ends the track, not really sure what this value shall be...
+    pub interleaving: u32, // with 0 no interleaving applied
 }
 
 impl IsoGeometry {
-    fn new(sectors_per_track: u32) -> Self {
+    pub fn new(sectors_per_track: usize) -> Self {
         // according to http://info-coach.fr/atari/software/FD-Soft.php
         match sectors_per_track {
             10 => IsoGeometry {
@@ -71,6 +71,16 @@ impl IsoGeometry {
                 gap5_size: 10,
                 sectors_per_track,
                 interleaving: 1,
+            },
+            1 => IsoGeometry {
+                gap1_size: 60,
+                gap2_size: 12,
+                gap3a_size: 22,
+                gap3b_size: 12,
+                gap4_size: 1,
+                gap5_size: 10,
+                sectors_per_track,
+                interleaving: 0,
             },
             // standard for 9 and 18
             _ => IsoGeometry {
@@ -125,8 +135,11 @@ pub fn generate_iso_sectorheader<T>(
     encoder.feed_encoded8((crc16 & 0xff) as u8);
 }
 
-pub fn generate_iso_data_header<T>(gap3b_size: usize, encoder: &mut MfmEncoder<T>)
-where
+pub fn generate_iso_data_header<T>(
+    gap3b_size: usize,
+    encoder: &mut MfmEncoder<T>,
+    address_mark: Option<u8>,
+) where
     T: FnMut(Bit),
 {
     // now the actual data of the sector
@@ -134,15 +147,18 @@ where
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
-    encoder.feed_encoded8(0xfb);
+    encoder.feed_encoded8(address_mark.unwrap_or(0xfb));
 }
 
-pub fn generate_iso_data_with_crc<T>(sectordata: &[u8], encoder: &mut MfmEncoder<T>)
-where
+pub fn generate_iso_data_with_crc<T>(
+    sectordata: &[u8],
+    encoder: &mut MfmEncoder<T>,
+    address_mark: Option<u8>,
+) where
     T: FnMut(Bit),
 {
     let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-    crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
+    crc.update(&[0xa1, 0xa1, 0xa1, address_mark.unwrap_or(0xfb)]);
     crc.update(sectordata);
     let crc16 = crc.get();
 
@@ -228,8 +244,8 @@ fn generate_iso_track(
 
         // the gap between sector header and data
         generate_iso_gap(geometry.gap3a_size as usize, 0x4e, &mut encoder);
-        generate_iso_data_header(geometry.gap3b_size as usize, &mut encoder);
-        generate_iso_data_with_crc(sectordata, &mut encoder);
+        generate_iso_data_header(geometry.gap3b_size as usize, &mut encoder, None);
+        generate_iso_data_with_crc(sectordata, &mut encoder, None);
 
         // gap after the sector
         generate_iso_gap(geometry.gap4_size as usize, 0x4e, &mut encoder);
@@ -246,7 +262,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
     let mut f = File::open(&path).expect("no file found");
     let metadata = fs::metadata(&path).expect("unable to read metadata");
 
-    let (cylinders, sectors_per_track) = calculate_floppy_geometry(metadata.len() as u32);
+    let (cylinders, sectors_per_track) = calculate_floppy_geometry(metadata.len() as usize);
 
     let geometry = IsoGeometry::new(sectors_per_track);
 
@@ -266,7 +282,8 @@ pub fn parse_iso_image(path: &str) -> RawImage {
 
     for cylinder in 0..cylinders {
         for head in 0..HEADS {
-            let trackbuf = generate_iso_track(cylinder, head, &geometry, &mut sectors);
+            let trackbuf =
+                generate_iso_track(cylinder as u32, head as u32, &geometry, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
                 number_of_cellbytes: trackbuf.len() as usize,
@@ -274,8 +291,8 @@ pub fn parse_iso_image(path: &str) -> RawImage {
             }];
 
             tracks.push(RawTrack::new(
-                cylinder,
-                head,
+                cylinder as u32,
+                head as u32,
                 trackbuf,
                 densitymap,
                 util::Encoding::MFM,

@@ -80,11 +80,11 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
 pub fn parse_g64_image(path: &str) -> RawImage {
     println!("Reading G64 from {} ...", path);
 
-    let mut f = File::open(&path).expect("no file found");
+    let mut file = File::open(&path).expect("no file found");
     let metadata = fs::metadata(&path).expect("unable to read metadata");
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
+    let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
     assert_eq!(bytes_read, metadata.len() as usize);
 
     let file_hash = md5::compute(&whole_file_buffer);

@@ -15,7 +15,6 @@ pub fn parse_d64_image(path: &str) -> RawImage {
     let mut file = File::open(&path).expect("no file found");
     let metadata = fs::metadata(&path).expect("unable to read metadata");
     assert_eq!(metadata.len() as u32, 174848, "D64 image has wrong size");
-    let _buffer = vec![0; metadata.len() as usize];
 
     let cylinders: u8 = 35;
     let bytes_per_sector = 256;

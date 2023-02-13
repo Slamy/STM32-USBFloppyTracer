@@ -85,7 +85,7 @@ where
 
             // the gap between sector header and data
             generate_iso_gap(gap3a_size, 0x4e, encoder);
-            generate_iso_data_header(gap3b_size, encoder);
+            generate_iso_data_header(gap3b_size, encoder, None);
 
             generate_iso_sectorheader(
                 16,
@@ -102,7 +102,7 @@ where
             // this is insane
             encoder.feed_raw_var(0x5555 >> 1, 15);
 
-            generate_iso_data_header(11, encoder);
+            generate_iso_data_header(11, encoder, None);
 
             // actual data which is 0x00 in sector 16 but 0xff in sector 0
             generate_iso_gap(16, 0x00, encoder);
@@ -523,7 +523,7 @@ fn process_track_record(
             generate_iso_gap(gap3a_size, 0x4e, &mut encoder);
 
             // now the actual data of the sector
-            generate_iso_data_header(gap3b_size, &mut encoder);
+            generate_iso_data_header(gap3b_size, &mut encoder, None);
 
             if (sector.fdc_flags & FDC_FLAG_INTRA_SECTOR_BIT_WIDTH_VARIATION) != 0 {
                 // TODO: This code was never tested.
@@ -558,7 +558,7 @@ fn process_track_record(
             {
                 generate_iso_data_with_broken_crc(sector_data, &mut encoder);
             } else {
-                generate_iso_data_with_crc(sector_data, &mut encoder);
+                generate_iso_data_with_crc(sector_data, &mut encoder, None);
             }
         }
 

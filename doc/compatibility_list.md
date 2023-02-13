@@ -45,7 +45,6 @@ therefore require lots of labor to actually reconstruct a disk from that.
 | James Pond II - Codename RoboCod (Europe).ipf             | a6b91be93105d903e0634b69c2be86bc |                 |                                        |
 | Thrust (Europe).ipf                                       | b76986a30c093cf22b718a3d7af771d6 |                 |                                        |
 
-
 ### C64
 
 It seems that C64 images are rarely delivered as G64 file. Instead we usually get a NIB file which shall be converted first.
@@ -97,8 +96,18 @@ It seems that C64 images are rarely delivered as G64 file. Instead we usually ge
 | armalyte_s1\[thalamus_1988\]\(pal)(!).g64              | 8dd4bfe82f254b2dbf5fd4998e406e12 |                                   |                                          |
 | armalyte_s2\[thalamus_1988\]\(pal)(!).g64              | 725858316042378290db0c41842f94e9 |                                   |                                          |
 
-
 *Some disks have a broken protection track. These are patched by the tool if found.
+
+### Amstrad CPC
+
+| Name                                                                            | MD5                              | Notes                          | Copy Protection Method                 |
+|---------------------------------------------------------------------------------|----------------------------------|--------------------------------|----------------------------------------|
+| Turrican (UK) (Face A) (1990) (CPM) (UK retail version) \[Original\].dsk        | c64c93cf9abf0a35aa451cc9150ef4a0 |                                | Hexagon Disk Protection - 1989 - Type 3|
+| Turrican 2 (UK) (Face A) (1991) (UK retail version) \[Original\].dsk            | a7b2af46f0f31e86444bbf4a7feee670 |                                |                                        |
+| Solomons Key + Road Runner (UK) (Face A) (1989) \[Original\] \[COMPILATION\].dsk| 31c1ca3ff99e9908eb02f17c2cd4b881 | This disk contains Solomons Key| None                                   |
+| Gryzor (UK) (1987) (CPM) \[Original\].dsk                                       | bf70f0893459a1b25a917f953c8dc6ee |                                | Erased sectors                         |
+| Spindizzy (UK) (1986) \[Original\].dsk                                          | e8eaf5c64ab6125a651099db34eea75c |                                | None                                   |
+| Cybernoid (UK) (1988) (CPM) \[Original\].dsk                                    | da98036cd7f1d8d051651d85f1f33e3f | Start in CPM mode              | None                                   |
 
 ## Not working with this tool
 

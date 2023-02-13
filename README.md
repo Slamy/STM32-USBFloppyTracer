@@ -17,6 +17,7 @@ This project is not created to encourage software piracy. It should be seen as a
     * .ipf
     * .d64
     * .g64
+    * .dsk
     * .st
     * .stx (Highty experimental, only [patched images](doc/compatibility_list.md))
     * .img (Typical DOS disk)
@@ -92,6 +93,7 @@ Assuming drive A is a 3.5" drive:
     usbfloppytracer -a image.ipf
     usbfloppytracer -a image.st
     usbfloppytracer -a image.stx
+    usbfloppytracer -a image.dsk
     usbfloppytracer -a image.img # Expected to be an ISO / IBM image
 
 Assuming drive B is a 5.25" drive:

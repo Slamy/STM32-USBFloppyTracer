@@ -3,12 +3,14 @@ use std::{ffi::OsStr, path::Path};
 use crate::rawtrack::RawImage;
 
 use self::{
-    image_adf::parse_adf_image, image_d64::parse_d64_image, image_g64::parse_g64_image,
-    image_ipf::parse_ipf_image, image_iso::parse_iso_image, image_stx::parse_stx_image,
+    image_adf::parse_adf_image, image_d64::parse_d64_image, image_dsk::parse_dsk_image,
+    image_g64::parse_g64_image, image_ipf::parse_ipf_image, image_iso::parse_iso_image,
+    image_stx::parse_stx_image,
 };
 
 pub mod image_adf;
 pub mod image_d64;
+pub mod image_dsk;
 pub mod image_g64;
 pub mod image_ipf;
 pub mod image_iso;
@@ -28,6 +30,7 @@ pub fn parse_image(path: &str) -> RawImage {
         "st" => parse_iso_image(path),
         "img" => parse_iso_image(path),
         "stx" => parse_stx_image(path),
+        "dsk" => parse_dsk_image(path),
         _ => panic!("{} is an unknown file extension!", extension),
     }
 }
@@ -110,6 +113,11 @@ mod tests {
         "../images/Rodland (1991)(Sales Curve)[cr Alien][t].st",
         "a1ee8d4fdcf05b562d990267052965c2",
         "63ae9182461c8a9e34c202cbf4332e00"
+    )]
+    #[case( // 12 - Amstrad CPC 2 sided DSK Image
+        "../images/R-Type_128K_dualside.dsk",
+        "8bd150d9c57dc0a016db759e8dc903e2",
+        "022d98d018f1aa871a0239c260ad4e11"
     )]
     fn known_image_regression_test(
         #[case] filepath: &str,

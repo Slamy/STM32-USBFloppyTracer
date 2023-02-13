@@ -24,3 +24,5 @@ target/
 *.exe
 *.profraw
 *.img
+*.dsk
+
