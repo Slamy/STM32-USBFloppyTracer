@@ -84,6 +84,10 @@ If not yet performed, the target of the microcontroller must be added to the rus
 
     rustup target add thumbv7em-none-eabihf
 
+Install cargo-embed as it is used for flashing:
+
+    cargo install cargo-embed
+
 ## How to build and flash the firmware
 
 	cd firmware
@@ -93,6 +97,11 @@ If not yet performed, the target of the microcontroller must be added to the rus
 
 	cargo build --release
 	cargo install --path tool/
+
+## Install udev rules to access the device as normal user:
+
+	sudo cp udev/99-usbfloppytracer.rules /etc/udev/rules.d/
+	sudo udevadm control -R
 
 ## Why not use the Greaseweazle or the Kryoflux?
 

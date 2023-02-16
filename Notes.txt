@@ -75,3 +75,6 @@ http://www.os2museum.com/wp/detecting-floppy-drives-and-media/
 
 
 https://computer-masters.de/laufwerksgroessen/
+
+Usage of rtthost to connect to my stlink:
+rtthost -c stm32f407VGTx
