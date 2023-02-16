@@ -84,7 +84,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                         id,
                         cylinder,
                         head,
-                        DI_LOCK_TYPE | DI_LOCK_INDEX | DI_LOCK_DENVAR,
+                        FLAG_LOCK_TYPE | FLAG_LOCK_INDEX | FLAG_LOCK_DENVAR,
                     )
                 },
                 0

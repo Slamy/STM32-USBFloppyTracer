@@ -62,6 +62,28 @@ The pin assigment hasn't changed to keep the software compatible.
 
 [Pinout diagram of Diymore STM32F4 board with floppy signals](doc/pinout/diymore.png)
 
+
+## Prerequisites for building this project
+
+The tool requires the [capsimage library](https://github.com/simonowen/capsimage).
+Build and install it.
+
+If rust is not installed yet, it is suggested to install it using [rustup](https://www.rust-lang.org/tools/install).
+Don't install rust using the package manager as one might get only older versions of rust.
+
+This project is not compatible with the currently stable version of rust. The nightly must be selected.
+This is however only a matter of time until certain features reach the stable version.
+
+    rustup default nightly
+
+Ensure that your rust is up-to-date:
+
+	rustup update nightly
+
+If not yet performed, the target of the microcontroller must be added to the rust environment
+
+    rustup target add thumbv7em-none-eabihf
+
 ## How to build and flash the firmware
 
 	cd firmware

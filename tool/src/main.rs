@@ -1,7 +1,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![feature(let_else)]
+#![feature(let_chains)]
 
 use crate::track_parser::read_first_track_discover_format;
 use crate::usb_commands::{wait_for_answer, wait_for_last_answer, write_raw_track};
