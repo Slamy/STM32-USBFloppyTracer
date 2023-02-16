@@ -2,13 +2,14 @@ use super::image_iso::{
     generate_iso_data_header, generate_iso_data_with_broken_crc, generate_iso_data_with_crc,
     generate_iso_gap, generate_iso_sectorheader,
 };
+use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 use crate::rawtrack::{RawImage, RawTrack};
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Cursor;
 use std::io::Read;
 use util::bitstream::BitStreamCollector;
-use util::mfm::{MfmEncoder, MfmWord};
+use util::mfm::{MfmEncoder, MfmWord, ISO_SYNC_BYTE};
 use util::{
     reduce_densitymap, Bit, Density, DensityMap, DensityMapEntry, PulseDuration, STM_TIMER_HZ,
 };
@@ -507,7 +508,7 @@ fn process_track_record(
             // usually we would have a function to generate a header. but STX is rather special
             // as this code allows wrong sector header CRCs as STX files support that.
             let sector_header = vec![
-                0xfe, // IDAM
+                ISO_IDAM,
                 sector.idam_track,
                 sector.idam_head,
                 sector.idam_sector,
@@ -532,7 +533,7 @@ fn process_track_record(
                 let timing_data = optional_timing_data.as_ref().unwrap();
 
                 let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
+                crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_DAM]);
                 crc.update(sector_data);
                 let crc16 = crc.get();
 

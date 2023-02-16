@@ -4,9 +4,11 @@ use std::{cell::RefCell, collections::VecDeque};
 use util::{
     bitstream::to_bit_stream,
     fluxpulse::FluxPulseGenerator,
-    mfm::{MfmDecoder, MfmWord},
+    mfm::{MfmDecoder, MfmWord, ISO_SYNC_BYTE},
     Bit, Density, DensityMap, DiskType, Encoding, RawCellData, STM_TIMER_MHZ,
 };
+
+use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 
 pub struct RawImage {
     pub density: Density,
@@ -206,12 +208,12 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
             let sync_type = queue.borrow_mut().pop_back().unwrap();
             println!("{} {:x?}", awaiting_dam, sync_type);
 
-            if awaiting_dam > 0 && matches!(sync_type, MfmWord::Enc(0xfb)) {
+            if awaiting_dam > 0 && matches!(sync_type, MfmWord::Enc(ISO_DAM)) {
                 println!("We got our data!");
                 break;
             }
 
-            if !matches!(sync_type, MfmWord::Enc(0xfe)) {
+            if !matches!(sync_type, MfmWord::Enc(ISO_IDAM)) {
                 continue;
             }
 
@@ -236,7 +238,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
 
             // Ok this is our sector!
             let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-            crc.update(&[0xa1, 0xa1, 0xa1, 0xfe]);
+            crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_IDAM]);
             crc.update(&sector_header);
             let crc16 = crc.get();
             assert_eq!(crc16, 0);

@@ -12,7 +12,7 @@ use util::{Density, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
 
 use crate::image_reader::image_iso::{
     generate_iso_data_header, generate_iso_data_with_crc, generate_iso_gap,
-    generate_iso_sectorheader, IsoGeometry,
+    generate_iso_sectorheader, IsoGeometry, ISO_DDAM,
 };
 use crate::rawtrack::{auto_cell_size, RawImage, RawTrack};
 
@@ -140,7 +140,7 @@ pub fn parse_dsk_image(path: &str) -> RawImage {
 
             // Some protections use sectors which are marked as deleted.
             let address_mark = if (fdc_status2 & FDC_765_STAT2_CONTROL_MARK) != 0 {
-                Some(0xf8) // deleted data
+                Some(ISO_DDAM) // deleted data
             } else {
                 None // use standard address mark
             };

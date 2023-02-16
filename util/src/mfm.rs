@@ -22,6 +22,7 @@ where
 }
 
 const ISO_SYNC_WORD: u16 = 0x4489;
+pub const ISO_SYNC_BYTE: u8 = 0xA1;
 
 /*
  Iso Sync Word 0x4489

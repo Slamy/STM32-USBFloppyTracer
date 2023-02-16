@@ -2,12 +2,16 @@ use anyhow::ensure;
 use util::{
     duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
-    mfm::{MfmDecoder, MfmWord},
+    mfm::{MfmDecoder, MfmWord, ISO_SYNC_BYTE},
     Density, DiskType, PulseDuration, DRIVE_3_5_RPM, DRIVE_5_25_RPM, DRIVE_SLOWEST_RPM,
     PULSE_REDUCE_SHIFT,
 };
 
-use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
+use crate::{
+    image_reader::image_iso::{ISO_DAM, ISO_IDAM},
+    rawtrack::TrackFilter,
+    track_parser::concatenate_sectors,
+};
 
 use super::{CollectedSector, TrackParser, TrackPayload};
 
@@ -90,7 +94,7 @@ impl TrackParser for IsoTrackParser {
             .iter()
             .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << PULSE_REDUCE_SHIFT)));
 
-        let mut iterator = mfm_words.iter();
+        let mut iterator = mfm_words.into_iter();
 
         let mut awaiting_dam = 0;
         let mut sector_header = Vec::new();
@@ -106,17 +110,17 @@ impl TrackParser for IsoTrackParser {
                 //println!("{} {:x?}", awaiting_dam, address_mark_type);
 
                 match address_mark_type {
-                    Some(MfmWord::Enc(0xfe)) => {
+                    Some(MfmWord::Enc(ISO_IDAM)) => {
                         sector_header.clear();
 
                         for _ in 0..6 {
                             if let Some(MfmWord::Enc(val)) = iterator.next() {
-                                sector_header.push(*val);
+                                sector_header.push(val);
                             }
                         }
 
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                        crc.update(&[0xa1, 0xa1, 0xa1, 0xfe]);
+                        crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_IDAM]);
                         crc.update(&sector_header);
                         let crc16 = crc.get();
                         if crc16 == 0 {
@@ -137,20 +141,20 @@ impl TrackParser for IsoTrackParser {
                             ensure!(sector_header[1] as u32 == self.expected_head.unwrap());
                         }
                     }
-                    Some(MfmWord::Enc(0xfb)) if awaiting_dam > 0 => {
+                    Some(MfmWord::Enc(ISO_DAM)) if awaiting_dam > 0 => {
                         let sector_size = 128 << sector_header[3];
                         let mut sector_data = Vec::with_capacity(sector_size + 2);
 
                         for _ in 0..sector_size + 2 {
                             if let Some(MfmWord::Enc(val)) = iterator.next() {
-                                sector_data.push(*val);
+                                sector_data.push(val);
                             } else {
                                 break;
                             }
                         }
 
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-                        crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
+                        crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_DAM]);
                         crc.update(&sector_data);
                         let crc16 = crc.get();
                         if crc16 == 0 {

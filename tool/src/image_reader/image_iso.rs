@@ -1,6 +1,7 @@
 use util::bitstream::BitStreamCollector;
 use util::mfm::MfmEncoder;
 use util::mfm::MfmWord;
+use util::mfm::ISO_SYNC_BYTE;
 use util::Bit;
 use util::Density;
 use util::{DensityMapEntry, PulseDuration};
@@ -15,6 +16,11 @@ use crate::rawtrack::RawTrack;
 // Information sources:
 // https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
 // http://info-coach.fr/atari/software/FD-Soft.php
+
+pub const ISO_IAM: u8 = 0xfc; // first address mark after index hole. not required though
+pub const ISO_IDAM: u8 = 0xfe; // sector header address mark
+pub const ISO_DAM: u8 = 0xfb; // data address mark
+pub const ISO_DDAM: u8 = 0xf8; // deleted data address mark
 
 const HEADS: usize = 2;
 const BYTES_PER_SECTOR: usize = 512;
@@ -115,16 +121,10 @@ pub fn generate_iso_sectorheader<T>(
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
 
-    let sector_header = vec![
-        0xfe, // IDAM
-        idam_cylinder,
-        idam_head,
-        idam_sector,
-        idam_size,
-    ];
+    let sector_header = vec![ISO_IDAM, idam_cylinder, idam_head, idam_sector, idam_size];
 
     let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-    crc.update(&[0xa1, 0xa1, 0xa1]);
+    crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE]);
     crc.update(&sector_header);
     let crc16 = crc.get();
 
@@ -147,7 +147,7 @@ pub fn generate_iso_data_header<T>(
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
     encoder.feed(MfmWord::SyncWord);
-    encoder.feed_encoded8(address_mark.unwrap_or(0xfb));
+    encoder.feed_encoded8(address_mark.unwrap_or(ISO_DAM));
 }
 
 pub fn generate_iso_data_with_crc<T>(
@@ -158,7 +158,12 @@ pub fn generate_iso_data_with_crc<T>(
     T: FnMut(Bit),
 {
     let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-    crc.update(&[0xa1, 0xa1, 0xa1, address_mark.unwrap_or(0xfb)]);
+    crc.update(&[
+        ISO_SYNC_BYTE,
+        ISO_SYNC_BYTE,
+        ISO_SYNC_BYTE,
+        address_mark.unwrap_or(ISO_DAM),
+    ]);
     crc.update(sectordata);
     let crc16 = crc.get();
 
@@ -174,7 +179,7 @@ where
     T: FnMut(Bit),
 {
     let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-    crc.update(&[0xa1, 0xa1, 0xa1, 0xfb]);
+    crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_DAM]);
     crc.update(sectordata);
     let crc16 = crc.get().overflowing_add(0x1212).0; // Destroy CRC
 
