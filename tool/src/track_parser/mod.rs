@@ -57,6 +57,7 @@ fn concatenate_sectors(
     }
 }
 
+#[must_use]
 pub fn read_first_track_discover_format(
     usb_handles: &(DeviceHandle<Context>, u8, u8),
     select_drive: DriveSelectState,
@@ -113,7 +114,7 @@ pub fn read_tracks_to_diskimage(
         let time_str = now.format("%Y%m%d_%H%M%S");
         let filepath = format!("{}.{}", time_str, track_parser.default_file_extension());
 
-        println!("Resulting image will be {}", filepath);
+        println!("Resulting image will be {filepath}");
 
         (track_parser, filepath)
     } else {
@@ -155,7 +156,7 @@ pub fn read_tracks_to_diskimage(
         _ => panic!("Program flow error!"),
     };
 
-    println!("Reading cylinders {} to {}", cylinder_begin, cylinder_end);
+    println!("Reading cylinders {cylinder_begin} to {cylinder_end}");
     let mut outfile = File::create(filepath).expect("Unable to create file");
 
     for cylinder in (cylinder_begin..cylinder_end).step_by(track_parser.step_size()) {
@@ -174,10 +175,7 @@ pub fn read_tracks_to_diskimage(
                     break;
                 }
 
-                println!(
-                    "Reading of track {} {} not successful. Try again...",
-                    cylinder, head
-                )
+                println!("Reading of track {cylinder} {head} not successful. Try again...")
             }
 
             let track = possible_track

@@ -77,22 +77,23 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
     }
 }
 
+#[must_use]
 pub fn parse_g64_image(path: &str) -> RawImage {
-    println!("Reading G64 from {} ...", path);
+    println!("Reading G64 from {path} ...");
 
-    let mut file = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
+    let mut file = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
     let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
     assert_eq!(bytes_read, metadata.len() as usize);
 
     let file_hash = md5::compute(&whole_file_buffer);
-    let file_hashstr = format!("{:x}", file_hash);
+    let file_hashstr = format!("{file_hash:x}");
 
     let (file_header_view, rest_of_file) = whole_file_buffer.split_at(12);
 
-    assert!("GCR-1541".as_bytes().eq(&file_header_view[0..8]));
+    assert!(b"GCR-1541".eq(&file_header_view[0..8]));
     let g64_version = file_header_view[8];
     assert_eq!(g64_version, 0);
     let number_of_tracks = file_header_view[9];
@@ -112,7 +113,7 @@ pub fn parse_g64_image(path: &str) -> RawImage {
         let track_offset = track_offsets[track_index as usize] as usize;
         let speed_offset = 3 - speed_offsets[track_index as usize] as usize;
 
-        let mut cellsize = G64_SPEED_TABLE[speed_offset] as u32;
+        let mut cellsize = G64_SPEED_TABLE[speed_offset];
 
         if track_offset > 0 {
             let trackdata_copy: Vec<u8>;
@@ -128,13 +129,13 @@ pub fn parse_g64_image(path: &str) -> RawImage {
                     &whole_file_buffer[track_offset + 2..track_offset + actual_track_size + 2];
 
                 if trackdata.iter().all(|f| *f == 0) {
-                    println!("Track {} is all zero? Remove it...", track_index,);
+                    println!("Track {track_index} is all zero? Remove it...",);
                     continue;
                 }
 
                 let bytecells_with_ff = trackdata.iter().filter(|f| **f == 0xff).count();
                 if bytecells_with_ff >= trackdata.len() - 2 {
-                    println!("Track {} is all 0xff? Remove it...", track_index,);
+                    println!("Track {track_index} is all 0xff? Remove it...",);
                     continue;
                 }
 
@@ -155,28 +156,24 @@ pub fn parse_g64_image(path: &str) -> RawImage {
             );
 
             if auto_cell_size < cellsize {
-                println!(
-                    "Auto reduce cellsize from {} to {}",
-                    cellsize, auto_cell_size
-                );
+                println!("Auto reduce cellsize from {cellsize} to {auto_cell_size}");
                 cellsize = auto_cell_size;
             }
 
             if let Some(force_track_size) = patch_cell_size(&file_hashstr, track_index) {
                 println!(
-                    "Force cell size because of patch process from {} to {}",
-                    cellsize, force_track_size
+                    "Force cell size because of patch process from {cellsize} to {force_track_size}"
                 );
                 cellsize = force_track_size;
             }
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cellbytes: trackdata_copy.len() as usize,
+                number_of_cellbytes: trackdata_copy.len(),
                 cell_size: PulseDuration(cellsize as i32),
             }];
 
             tracks.push(RawTrack::new(
-                track_index as u32,
+                u32::from(track_index),
                 0,
                 trackdata_copy,
                 densitymap,

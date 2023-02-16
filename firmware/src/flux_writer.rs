@@ -46,9 +46,10 @@ impl FluxWriter {
             self.dma1.borrow(cs).hifcr.write(|w| w.ctcif6().clear()); // Clear interrupt
         }
 
-        if self.dma1.borrow(cs).hisr.read().teif6().is_error() {
-            panic!("DMA Error");
-        }
+        assert!(
+            !self.dma1.borrow(cs).hisr.read().teif6().is_error(),
+            "DMA Error"
+        );
     }
 
     fn tim4_pulse_complete_callback(&mut self, cs: &CriticalSection) {
@@ -107,6 +108,7 @@ impl FluxWriter {
         self.fill_buffer();
     }
 
+    #[must_use]
     pub fn transmission_active(&self) -> bool {
         self.tim4.cr1.read().cen().is_enabled()
     }

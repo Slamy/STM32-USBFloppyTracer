@@ -11,7 +11,7 @@ use util::{Bit, DensityMapEntry, PulseDuration};
 
 // info from http://lclevy.free.fr/adflib/adf_info.html
 
-const AMIGA_MFM_MASK: u32 = 0x55555555;
+const AMIGA_MFM_MASK: u32 = 0x5555_5555;
 const SECTORS_PER_TRACK: u32 = 11;
 
 const CYLINDERS: u32 = 80;
@@ -45,8 +45,11 @@ fn generate_amiga_sector<T>(
      *   current one)
      */
     assert!(head < 2);
-    let amiga_sectorHeader: u32 =
-        0xff000000 | (cylinder << 17) | (head << 16) | (sector << 8) | (SECTORS_PER_TRACK - sector);
+    let amiga_sectorHeader: u32 = 0xff00_0000
+        | (cylinder << 17)
+        | (head << 16)
+        | (sector << 8)
+        | (SECTORS_PER_TRACK - sector);
 
     encoder.feed_odd16_32(amiga_sectorHeader);
     encoder.feed_even16_32(amiga_sectorHeader);
@@ -114,11 +117,12 @@ fn generate_amiga_track(cylinder: u32, head: u32, sectors: &mut ChunksExact<u8>)
     trackbuf
 }
 
+#[must_use]
 pub fn parse_adf_image(path: &str) -> RawImage {
-    println!("Reading ADF from {} ...", path);
+    println!("Reading ADF from {path} ...");
 
-    let mut f = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
+    let mut f = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
     assert_eq!(
         metadata.len() as u32,
         BYTES_PER_SECTOR * HEADS * SECTORS_PER_TRACK * CYLINDERS
@@ -137,7 +141,7 @@ pub fn parse_adf_image(path: &str) -> RawImage {
             let trackbuf = generate_amiga_track(cylinder, head, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cellbytes: trackbuf.len() as usize,
+                number_of_cellbytes: trackbuf.len(),
                 cell_size: PulseDuration(168),
             }];
 
@@ -172,7 +176,7 @@ mod tests {
                 let longbuf = longs.next().unwrap();
                 let long = u32::from_be_bytes(longbuf.try_into().unwrap());
 
-                if long == 0x44894489 {
+                if long == 0x4489_4489 {
                     println!("Detected sync!");
                     break;
                 }
@@ -185,12 +189,12 @@ mod tests {
 
             let sector_header = ((sector_header_odd) << 1) | (sector_header_even);
 
-            println!("{:x}", sector_header);
-            assert_eq!(sector_header & 0xFF000000, 0xff000000);
+            println!("{sector_header:x}");
+            assert_eq!(sector_header & 0xFF00_0000, 0xff00_0000);
             let track = (sector_header >> 16) & 0xff;
             let sector = (sector_header >> 8) & 0xff;
             let remaining_sectors = sector_header & 0xff;
-            println!("Track {} Sector {}", track, sector);
+            println!("Track {track} Sector {sector}");
             assert_eq!(sector, 11 - remaining_sectors);
 
             let mut checksum: u32 = 0;
@@ -223,7 +227,7 @@ mod tests {
             checksum ^=
                 u32::from_be_bytes(longs.next().unwrap().try_into().unwrap()) & AMIGA_MFM_MASK;
 
-            println!("Header Checksum {:x}", checksum);
+            println!("Header Checksum {checksum:x}");
             assert_eq!(checksum, 0);
 
             // start with data checksum
@@ -240,7 +244,7 @@ mod tests {
                     u32::from_be_bytes(longs.next().unwrap().try_into().unwrap()) & AMIGA_MFM_MASK;
             }
 
-            println!("Data Checksum {:x}", checksum);
+            println!("Data Checksum {checksum:x}");
             assert_eq!(checksum, 0);
         }
     }

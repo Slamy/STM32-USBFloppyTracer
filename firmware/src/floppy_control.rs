@@ -29,6 +29,7 @@ pub struct FloppyControl {
 }
 
 impl FloppyControl {
+    #[must_use]
     pub fn new(
         drive_a: FloppyDriveUnit,
         drive_b: FloppyDriveUnit,
@@ -76,6 +77,7 @@ impl FloppyControl {
         }
     }
 
+    #[must_use]
     pub fn is_spinning(&self) -> bool {
         self.selected_drive_unit_ref()
             .as_ref()
@@ -90,6 +92,7 @@ impl FloppyControl {
         }
     }
 
+    #[must_use]
     pub fn selected_drive_unit_ref(&self) -> Option<&FloppyDriveUnit> {
         match self.drive_select {
             DriveSelectState::None => None,
@@ -111,14 +114,14 @@ impl FloppyControl {
     pub fn select_track(&mut self, track: Track) {
         let selected_drive = self.selected_drive_unit().unwrap();
 
-        let wanted_cylinder = track.cylinder.0 as u32;
+        let wanted_cylinder = u32::from(track.cylinder.0);
         if !selected_drive.head_position_equals(wanted_cylinder) {
             let current_head_position = selected_drive.take_head_position_for_stepping();
             let func = Box::pin(
                 self.floppy_step_signals
                     .take()
                     .unwrap()
-                    .step_to_cylinder(current_head_position, track.cylinder.0 as u32),
+                    .step_to_cylinder(current_head_position, u32::from(track.cylinder.0)),
             );
 
             self.floppy_step_progress = Some(Cassette::new(func));
@@ -133,6 +136,7 @@ impl FloppyControl {
             .unwrap();
     }
 
+    #[must_use]
     pub fn reached_selected_cylinder(&self) -> bool {
         self.floppy_step_progress.is_none()
     }

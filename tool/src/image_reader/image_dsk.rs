@@ -22,11 +22,12 @@ const FDC_765_STAT2_CONTROL_MARK: u8 = 1 << 6;
 // additional info https://simonowen.com/misc/extextdsk.txt
 // info about protections of games https://www.cpc-power.com/index.php?page=protection
 
+#[must_use]
 pub fn parse_dsk_image(path: &str) -> RawImage {
-    println!("Reading DSK from {} ...", path);
+    println!("Reading DSK from {path} ...");
 
-    let mut file = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
+    let mut file = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
     let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
@@ -72,9 +73,7 @@ pub fn parse_dsk_image(path: &str) -> RawImage {
         }
 
         // Ensure that we are actually reading the data we expect here
-        assert!("Track-Info\r\n"
-            .as_bytes()
-            .eq(&track_information_block[0..12]));
+        assert!(b"Track-Info\r\n".eq(&track_information_block[0..12]));
 
         let mut track_info_reader = Cursor::new(&track_information_block[0x10..]);
 
@@ -156,13 +155,13 @@ pub fn parse_dsk_image(path: &str) -> RawImage {
         let auto_cell_size = auto_cell_size(trackbuf.len() as u32, DRIVE_3_5_RPM).min(168.0_f64);
 
         let densitymap = vec![DensityMapEntry {
-            number_of_cellbytes: trackbuf.len() as usize,
+            number_of_cellbytes: trackbuf.len(),
             cell_size: PulseDuration(auto_cell_size as i32),
         }];
 
         tracks.push(RawTrack::new(
-            track_number as u32,
-            side_number as u32,
+            u32::from(track_number),
+            u32::from(side_number),
             trackbuf,
             densitymap,
             util::Encoding::MFM,

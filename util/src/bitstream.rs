@@ -54,11 +54,11 @@ mod tests {
         let mut vout: Vec<u8> = Vec::new();
 
         let vin: Vec<u8> = vec![0xaa, 0x44, 0x89, 0x2a];
-        for i in vin.iter() {
-            to_bit_stream(*i, |d| vout.push(if d.0 { 1 } else { 0 }));
+        for i in &vin {
+            to_bit_stream(*i, |d| vout.push(u8::from(d.0)));
         }
 
-        println!("{:?}", vout);
+        println!("{vout:?}");
 
         assert_eq!(
             vout,

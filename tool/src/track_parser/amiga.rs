@@ -12,7 +12,7 @@ use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
 
 use super::{CollectedSector, TrackParser, TrackPayload};
 
-const AMIGA_MFM_MASK: u32 = 0x55555555;
+const AMIGA_MFM_MASK: u32 = 0x5555_5555;
 const WORDS_PER_SECTOR: usize = 128;
 pub const SECTORS_PER_AMIGA_DD_TRACK: usize = 11;
 
@@ -31,13 +31,14 @@ pub struct AmigaTrackParser {
 }
 
 impl AmigaTrackParser {
+    #[must_use]
     pub fn new(disk_type: Density) -> Self {
         let expected_sectors_per_track = match disk_type {
             Density::High => 22,
             Density::SingleDouble => 11,
         };
 
-        AmigaTrackParser {
+        Self {
             collected_sectors: None,
             expected_sectors_per_track,
             expected_track_number: None,
@@ -63,7 +64,7 @@ impl TrackParser for AmigaTrackParser {
 
         track
             .iter()
-            .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << 3)));
+            .for_each(|f| pulseparser.feed(PulseDuration(i32::from(*f) << 3)));
 
         let mut iterator = mfm_words.iter();
 
@@ -147,7 +148,7 @@ fn parse_amiga_sector<'a>(
 
     // every sector header must start with 0xff
     ensure!(
-        sector_header & 0xff000000 == 0xff000000,
+        sector_header & 0xff00_0000 == 0xff00_0000,
         "Sector header not starting with 0xff {:x}",
         sector_header
     );

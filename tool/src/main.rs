@@ -16,7 +16,7 @@ use track_parser::read_tracks_to_diskimage;
 use usb_commands::configure_device;
 use usb_device::{clear_buffers, init_usb};
 use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
-use write_precompensation::{write_precompensation_calibration, WritePrecompDb};
+use write_precompensation::{calibration, WritePrecompDb};
 
 pub mod image_reader;
 pub mod track_parser;
@@ -96,7 +96,7 @@ fn write_debug_text_file(path: &str, image: RawImage) {
 
     let mut context = md5::Context::new();
 
-    for track in image.tracks.iter() {
+    for track in &image.tracks {
         context.consume(u32::to_le_bytes(track.cylinder));
         context.consume(u32::to_le_bytes(track.head));
         track.densitymap.iter().for_each(|g| {
@@ -115,8 +115,7 @@ fn write_debug_text_file(path: &str, image: RawImage) {
         .unwrap();
 
         if track.has_non_flux_reversal_area {
-            f.write_all("Has Non Flux Reversal Area\n".as_bytes())
-                .unwrap();
+            f.write_all(b"Has Non Flux Reversal Area\n").unwrap();
         }
         track.densitymap.iter().for_each(|g| {
             f.write_all(
@@ -134,14 +133,16 @@ fn write_debug_text_file(path: &str, image: RawImage) {
     }
 
     let md5_hash = context.compute();
-    let md5_hashstr = format!("{:x}", md5_hash);
-    println!("MD5 for unit test: {}", md5_hashstr);
+    let md5_hashstr = format!("{md5_hash:x}");
+    println!("MD5 for unit test: {md5_hashstr}");
 }
 
 fn main() {
     let cli = Args::parse();
 
-    let image = if !cli.read {
+    let image = if cli.read {
+        None
+    } else {
         let wprecomp_db = WritePrecompDb::new();
 
         // before the make contact to the USB device, we shall read the image first
@@ -162,16 +163,16 @@ fn main() {
             exit(0);
         }
 
-        for track in image.tracks.iter() {
+        for track in &image.tracks {
             track.assert_fits_into_rotation(rpm);
             track.check_writability();
         }
 
         let mut already_warned_about_wprecomp_fail = false;
-        for track in image.tracks.iter_mut() {
+        for track in &mut image.tracks {
             // only alter the write precompensation if no calibration is performed!
             if let Some(wprecomp_db) = &wprecomp_db && !cli.wprecomp_calib {
-            track.write_precompensation = wprecomp_db.calculate_write_precompensation(
+            track.write_precompensation = wprecomp_db.calculate(
                 track.densitymap[0].cell_size.0 as u32,
                 track.cylinder,
             ).unwrap_or_else(||{
@@ -184,8 +185,6 @@ fn main() {
         }
         }
         Some(image)
-    } else {
-        None
     };
 
     // connect to USB
@@ -198,9 +197,10 @@ fn main() {
     // still contains data. Must be removed before proceeding
     clear_buffers(&usb_handles);
 
-    if cli.a_drive && cli.b_drive {
-        panic!("Specify either drive A or B. NOT BOTH!");
-    }
+    assert!(
+        !(cli.a_drive && cli.b_drive),
+        "Specify either drive A or B. NOT BOTH!"
+    );
 
     let select_drive = if cli.a_drive {
         DriveSelectState::A
@@ -218,7 +218,7 @@ fn main() {
 
     if cli.read && cli.filepath == "discover" {
         println!("Let me see...");
-        read_first_track_discover_format(&usb_handles, select_drive);
+        let _not_required = read_first_track_discover_format(&usb_handles, select_drive);
     } else if cli.read {
         let track_filter = cli.track_filter;
         let track_filter = track_filter.map(|f| TrackFilter::new(&f));
@@ -235,7 +235,7 @@ fn main() {
         );
 
         if cli.wprecomp_calib {
-            write_precompensation_calibration(&usb_handles, image);
+            calibration(&usb_handles, image);
         } else {
             write_and_verify_image(&usb_handles, image);
         }

@@ -9,12 +9,13 @@ use util::{DensityMapEntry, PulseDuration};
 
 // http://www.baltissen.org/newhtm/1541c.htm
 
+#[must_use]
 pub fn parse_d64_image(path: &str) -> RawImage {
-    println!("Reading D64 from {} ...", path);
+    println!("Reading D64 from {path} ...");
 
-    let mut file = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
-    assert_eq!(metadata.len() as u32, 174848, "D64 image has wrong size");
+    let mut file = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
+    assert_eq!(metadata.len() as u32, 174_848, "D64 image has wrong size");
 
     let cylinders: u8 = 35;
     let bytes_per_sector = 256;
@@ -88,12 +89,12 @@ pub fn parse_d64_image(path: &str) -> RawImage {
         }
 
         let densitymap = vec![DensityMapEntry {
-            number_of_cellbytes: trackbuf.len() as usize,
+            number_of_cellbytes: trackbuf.len(),
             cell_size: PulseDuration(settings.cellsize as i32),
         }];
 
         tracks.push(RawTrack::new(
-            src_cylinder as u32 * 2,
+            u32::from(src_cylinder) * 2,
             0,
             trackbuf,
             densitymap,

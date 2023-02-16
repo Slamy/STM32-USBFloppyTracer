@@ -117,7 +117,7 @@ where
             // TODO: For yet unknown reasons, the data after the no flux reversal ara
             // is not allowed to be any data. I need to check why this is the case...
             // but for know this doesn't hurt.
-            encoder.feed_raw8(0b10101010);
+            encoder.feed_raw8(0b1010_1010);
 
             *has_non_flux_reversal_area = true;
             true
@@ -127,7 +127,7 @@ where
 }
 
 fn read_time_to_cellsize_in_seconds(sector_read_time: u16, sector_size: usize) -> f64 {
-    1e-6 * (sector_read_time as f64) / (sector_size * 16) as f64
+    1e-6 * f64::from(sector_read_time) / (sector_size * 16) as f64
 }
 
 #[derive(Clone, Debug)]
@@ -143,21 +143,22 @@ fn total_number_raw_bytes_deviation_map(deviation_map: &[SectorTimingDeviation])
 const SECTOR_DESCRIPTOR_SIZE: usize = 16;
 const TRACK_DESCRIPTOR_SIZE: usize = 16;
 
+#[must_use]
 pub fn parse_stx_image(path: &str) -> RawImage {
-    println!("Reading STX from {} ...", path);
+    println!("Reading STX from {path} ...");
 
-    let mut f = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
+    let mut f = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
     let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
     assert_eq!(bytes_read, metadata.len() as usize);
 
     let file_hash = md5::compute(&whole_file_buffer);
-    let file_hash_str = format!("{:x}", file_hash);
+    let file_hash_str = format!("{file_hash:x}");
 
     assert!(
-        "RSY\0".as_bytes().eq(&whole_file_buffer[0..4]),
+        b"RSY\0".eq(&whole_file_buffer[0..4]),
         "Is this really an STX / Pasti file?"
     );
 
@@ -172,10 +173,7 @@ pub fn parse_stx_image(path: &str) -> RawImage {
     let _reserved2 = file_desc_reader.read_u32::<LittleEndian>().unwrap();
 
     assert_eq!(version, 3, "Only Pasti version 3 is supported!");
-    println!(
-        "Number of tracks {}, File Revision {}",
-        track_count, revision
-    );
+    println!("Number of tracks {track_count}, File Revision {revision}");
 
     // After the File Descriptor follows the track records
     let mut current_track_record_position = 16;
@@ -221,7 +219,7 @@ fn read_sector_descriptors(
         // Read a Sector Descriptor
         let data_offset = track_record_reader.read_u32::<LittleEndian>().unwrap() as usize;
         let bit_position = track_record_reader.read_u16::<LittleEndian>().unwrap() as usize;
-        let read_time = track_record_reader.read_u16::<LittleEndian>().unwrap() as u32;
+        let read_time = u32::from(track_record_reader.read_u16::<LittleEndian>().unwrap());
 
         let idam_track = track_record_reader.read_u8().unwrap();
         let idam_head = track_record_reader.read_u8().unwrap();
@@ -266,7 +264,7 @@ fn read_sector_descriptors(
 }
 
 fn read_timing_record(optional_timing_record: &[u8]) -> Vec<f64> {
-    println!("timing sector {:x?}", optional_timing_record);
+    println!("timing sector {optional_timing_record:x?}");
 
     let mut timing_record_reader = Cursor::new(&optional_timing_record);
     let flags = timing_record_reader.read_u16::<LittleEndian>().unwrap();
@@ -285,7 +283,7 @@ fn read_timing_record(optional_timing_record: &[u8]) -> Vec<f64> {
         // the timing value is defined as the microseconds *4 it takes to read 16 data bytes
         // the nominal value is 128, which is 512 microseconds (16 * microseconds per data byte)
         let timing_value = timing_record_reader.read_u16::<BigEndian>().unwrap();
-        let cellsize_in_seconds = 1e-6 * (timing_value as f64) / 64.0;
+        let cellsize_in_seconds = 1e-6 * f64::from(timing_value) / 64.0;
         //let raw_cellsize = (cellsize_microseconds * 84.0).round() as u16;
         timing_data.push(cellsize_in_seconds);
     }
@@ -355,7 +353,7 @@ fn process_track_record(
 
     let optional_fuzzy_mask_start = current_track_record_position
         + TRACK_DESCRIPTOR_SIZE
-        + SECTOR_DESCRIPTOR_SIZE * sector_count as usize;
+        + SECTOR_DESCRIPTOR_SIZE * sector_count;
 
     // Track data contains the "Optional Track Image" and the "Optional Sector Images"
     let track_data_start = optional_fuzzy_mask_start + fuzzy_count;
@@ -405,15 +403,15 @@ fn process_track_record(
     if (track_flags & TRK_IMAGE) != 0 {
         let mut track_image_header_reader = Cursor::new(&whole_file_buffer[track_data_start..]);
 
-        let (_first_sync_offset, track_image_start) = if (track_flags & TRK_SYNC) != 0 {
+        let (_first_sync_offset, track_image_start) = if (track_flags & TRK_SYNC) == 0 {
+            (0, 2)
+        } else {
             (
                 track_image_header_reader
                     .read_u16::<LittleEndian>()
                     .unwrap() as usize,
                 4,
             )
-        } else {
-            (0, 2)
         };
 
         let track_image_size = track_image_header_reader
@@ -449,7 +447,7 @@ fn process_track_record(
     let mut deviation_map: Vec<SectorTimingDeviation> = Vec::new();
     let mut byte_position_offset = None;
 
-    for sector in sectors.iter() {
+    for sector in &sectors {
         // Optional patching to remove sectors.
         // This is required in case a sector is inside another.
         // Turrican requires this.
@@ -594,8 +592,8 @@ fn process_track_record(
     assert!(!densitymap.is_empty());
 
     let track = RawTrack::new_with_non_flux_reversal_area(
-        cylinder as u32,
-        head as u32,
+        u32::from(cylinder),
+        u32::from(head),
         trackbuf.take(),
         densitymap,
         util::Encoding::MFM,

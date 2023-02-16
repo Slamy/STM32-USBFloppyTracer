@@ -47,14 +47,14 @@ mod tests {
     use util::{DRIVE_3_5_RPM, DRIVE_5_25_RPM};
 
     fn md5_sum_of_file(path: &str) -> String {
-        let mut f = File::open(&path).expect("no file found");
-        let metadata = fs::metadata(&path).expect("unable to read metadata");
+        let mut f = File::open(path).expect("no file found");
+        let metadata = fs::metadata(path).expect("unable to read metadata");
 
         let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
         let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
         assert_eq!(bytes_read, metadata.len() as usize);
         let file_hash = md5::compute(&whole_file_buffer);
-        let file_hashstr = format!("{:x}", file_hash);
+        let file_hashstr = format!("{file_hash:x}");
         file_hashstr
     }
 
@@ -135,7 +135,7 @@ mod tests {
 
         let mut context = md5::Context::new();
 
-        for track in image.tracks.iter_mut() {
+        for track in &mut image.tracks {
             let rpm = match image.disk_type {
                 util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
                 util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
@@ -154,7 +154,7 @@ mod tests {
         }
 
         let md5_hash = context.compute();
-        let md5_hashstr = format!("{:x}", md5_hash);
+        let md5_hashstr = format!("{md5_hash:x}");
         assert_eq!(md5_hashstr, expected_md5);
     }
 }

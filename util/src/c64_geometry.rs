@@ -4,6 +4,7 @@ pub struct TrackConfiguration {
     pub gap_size: usize,
 }
 
+#[must_use]
 pub fn get_track_settings(track: usize) -> TrackConfiguration {
     assert_ne!(track, 0, "We are starting with 1 here!");
     if track <= 17 {

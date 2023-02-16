@@ -174,7 +174,7 @@ fn main() -> ! {
     rprintln!("Go Go!");
 
     let mut syst = cp.SYST;
-    syst.set_reload(168000 / 4);
+    syst.set_reload(168_000 / 4);
     syst.clear_current();
     syst.enable_counter();
     syst.enable_interrupt();
@@ -266,7 +266,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
 
                 let result = cm.block_on();
                 if let Err(err) = result {
-                    let str_response = format!("Fail {:?}", err);
+                    let str_response = format!("Fail {err:?}");
                     usb_handler.response(&str_response);
                 }
             }

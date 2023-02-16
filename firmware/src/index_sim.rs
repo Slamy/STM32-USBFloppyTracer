@@ -5,11 +5,12 @@ pub struct IndexSim {
 }
 
 impl IndexSim {
+    #[must_use]
     pub fn new(tim5: TIM5) -> Self {
         tim5.cr1.modify(|_, w| w.dir().up());
         tim5.cnt.write(|w| w.cnt().bits(0)); // reset count to 0
         tim5.arr.write(|w| w.arr().bits(14 * 1000 * 1000)); // 6 Hz == 360 RPM
-        tim5.ccr2().write(|w| w.ccr().bits(200000)); // output compare value, have something like 3ms
+        tim5.ccr2().write(|w| w.ccr().bits(200_000)); // output compare value, have something like 3ms
         tim5.ccmr1_output().modify(|_, w| w.oc2m().force_inactive());
         tim5.ccer.write(|w| w.cc2e().set_bit().cc2p().set_bit()); //activate channel 2 output with inverted polarity
 

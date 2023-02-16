@@ -11,10 +11,7 @@ use util::Density;
 use crate::RawImage;
 use crate::{rawtrack::RawTrack, write_raw_track};
 
-pub fn write_precompensation_calibration(
-    usb_handles: &(DeviceHandle<Context>, u8, u8),
-    mut image: RawImage,
-) {
+pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: RawImage) {
     println!("tracks len {}", image.tracks.len());
     println!("Disk Type {:?} {:?}", image.density, image.disk_type);
 
@@ -113,7 +110,7 @@ pub fn write_precompensation_calibration(
     // get last answer
     process_answer(&mut results, true);
 
-    println!("{:?}", results);
+    println!("{results:?}");
 
     let mut csv_wtr = csv::Writer::from_path("wprecomp.csv").unwrap();
 
@@ -131,7 +128,7 @@ pub fn write_precompensation_calibration(
     for (track, entries) in results {
         csv_wtr.write_field(track.to_string()).unwrap();
         csv_wtr
-            .write_record(entries.iter().map(|f| f.to_string()))
+            .write_record(entries.iter().map(std::string::ToString::to_string))
             .unwrap();
     }
 
@@ -151,17 +148,18 @@ pub struct WritePrecompDb {
 }
 
 impl WritePrecompDb {
+    #[must_use]
     pub fn new() -> Option<Self> {
         let mut samples = Vec::new();
 
-        let x = home::home_dir()
+        let wprecomp_path = home::home_dir()
             .unwrap()
             .join(".usbfloppytracer/wprecomp.cfg");
 
-        println!("Reading config from {:?}", x);
-        let file = File::open(x)
+        println!("Reading config from {wprecomp_path:?}");
+        let file = File::open(wprecomp_path)
             .map_err(|f| {
-                println!("Write precompensation not used... {}", f);
+                println!("Write precompensation not used... {f}");
                 f
             })
             .ok()?;
@@ -189,7 +187,7 @@ impl WritePrecompDb {
 
         samples.sort();
 
-        Some(WritePrecompDb { samples })
+        Some(Self { samples })
     }
 
     fn lerp_left(&self, cellsize: u32, cylinder: u32) -> Option<(f32, u32)> {
@@ -213,8 +211,10 @@ impl WritePrecompDb {
         let left_track_factor = (cylinder - left_top_sample.cylinder) as f32
             / (left_bottom_sample.cylinder - left_top_sample.cylinder) as f32;
 
-        let left_result = (1.0 - left_track_factor) * left_top_sample.wprecomp as f32
-            + left_track_factor * left_bottom_sample.wprecomp as f32;
+        let left_result = (1.0 - left_track_factor).mul_add(
+            left_top_sample.wprecomp as f32,
+            left_track_factor * left_bottom_sample.wprecomp as f32,
+        );
 
         Some((left_result, left_top_sample.cellsize))
     }
@@ -241,12 +241,15 @@ impl WritePrecompDb {
 
         let right_track_factor = (cylinder - right_top_sample.cylinder) as f32
             / (right_bottom_sample.cylinder - right_top_sample.cylinder) as f32;
-        let right_result = (1.0 - right_track_factor) * right_top_sample.wprecomp as f32
-            + right_track_factor * right_bottom_sample.wprecomp as f32;
+        let right_result = (1.0 - right_track_factor).mul_add(
+            right_top_sample.wprecomp as f32,
+            right_track_factor * right_bottom_sample.wprecomp as f32,
+        );
         (right_result, right_bottom_sample.cellsize)
     }
 
-    pub fn calculate_write_precompensation(&self, cellsize: u32, cylinder: u32) -> Option<u32> {
+    #[must_use]
+    pub fn calculate(&self, cellsize: u32, cylinder: u32) -> Option<u32> {
         // cell sizes are left to right, so the x axis
         // cylinders are top to bottom, so the y axis
         let (left_result, left_cellsize) = self.lerp_left(cellsize, cylinder)?;
@@ -260,7 +263,9 @@ impl WritePrecompDb {
             (cellsize - left_cellsize) as f32 / (right_cellsize - left_cellsize) as f32;
 
         Some(
-            ((1.0 - cellsize_factor) * left_result + cellsize_factor * right_result).round() as u32,
+            (1.0 - cellsize_factor)
+                .mul_add(left_result, cellsize_factor * right_result)
+                .round() as u32,
         )
     }
 }

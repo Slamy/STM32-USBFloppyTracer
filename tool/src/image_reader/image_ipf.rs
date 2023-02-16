@@ -1,7 +1,7 @@
 use crate::rawtrack::auto_cell_size;
 use crate::rawtrack::{RawImage, RawTrack};
 use std::cell::Cell;
-use std::ffi::{c_void, CString};
+use std::ffi::CString;
 use std::mem::{self, MaybeUninit};
 use std::slice;
 use std::sync::Mutex;
@@ -48,7 +48,7 @@ fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
 }
 
 pub fn parse_ipf_image(path: &str) -> RawImage {
-    println!("Reading IPF from {} ...", path);
+    println!("Reading IPF from {path} ...");
 
     let mut tracks: Vec<RawTrack> = Vec::new();
 
@@ -72,15 +72,15 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
 
     let cii = unsafe { cii.assume_init_mut() };
 
-    for cylinder in cii.mincylinder..cii.maxcylinder + 1 {
-        for head in cii.minhead..cii.maxhead + 1 {
+    for cylinder in cii.mincylinder..=cii.maxcylinder {
+        for head in cii.minhead..=cii.maxhead {
             let mut trackInf = MaybeUninit::<CapsTrackInfoT1>::uninit();
 
             assert_eq!(
                 unsafe {
                     (*trackInf.as_mut_ptr()).type_ = 1;
                     CAPSLockTrack(
-                        trackInf.as_mut_ptr() as *mut c_void,
+                        trackInf.as_mut_ptr().cast::<std::ffi::c_void>(),
                         id,
                         cylinder,
                         head,
@@ -123,8 +123,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                 let mut densitymap;
                 if trackInf.type_ == ctitVar {
                     println!(
-                        "Variable Density Track {} {} - Auto cell size {} ",
-                        cylinder, head, auto_cell_size
+                        "Variable Density Track {cylinder} {head} - Auto cell size {auto_cell_size} "
                     );
 
                     assert!(trackInf.timelen == trackInf.tracklen);
@@ -150,14 +149,14 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
 
                     densitymap = sparse_timebuf(&timebuf);
 
-                    densitymap.iter_mut().for_each(|d| {
+                    for d in &mut densitymap {
                         d.cell_size = PulseDuration(
-                            ((d.cell_size.0 as f64) * auto_cell_size / 1000.0) as i32,
+                            (f64::from(d.cell_size.0) * auto_cell_size / 1000.0) as i32,
                         );
-                    });
+                    }
                 } else {
                     densitymap = vec![DensityMapEntry {
-                        number_of_cellbytes: trackbuf.len() as usize,
+                        number_of_cellbytes: trackbuf.len(),
                         cell_size: PulseDuration(auto_cell_size as i32),
                     }];
                 }
@@ -190,15 +189,14 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
             f.densitymap
                 .iter()
                 .map(|f| f.cell_size.0)
-                .reduce(|a, b| a.min(b))
+                .reduce(std::cmp::Ord::min)
         })
-        .map(|f| f.unwrap())
-        .reduce(|a, b| a.min(b))
+        .map(std::option::Option::unwrap)
+        .reduce(std::cmp::Ord::min)
         .unwrap();
-    let smallest_cell_size_usec = smallest_cell_size as f64 / 84.0;
+    let smallest_cell_size_usec = f64::from(smallest_cell_size) / 84.0;
     println!(
-        "Smallest cell size of this image is {} / {:.2} usec",
-        smallest_cell_size, smallest_cell_size_usec
+        "Smallest cell size of this image is {smallest_cell_size} / {smallest_cell_size_usec:.2} usec"
     );
 
     RawImage {

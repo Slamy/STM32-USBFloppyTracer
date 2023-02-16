@@ -35,7 +35,7 @@ fn calculate_floppy_geometry(number_bytes: usize) -> (usize, usize) {
     for sectors in POSSIBLE_SECTOR_COUNTS {
         for cylinders in POSSIBLE_CYLINDER_COUNTS {
             if number_bytes == cylinders * HEADS * BYTES_PER_SECTOR * sectors {
-                println!("Disk has {} cylinders and {} sectors!", cylinders, sectors);
+                println!("Disk has {cylinders} cylinders and {sectors} sectors!");
                 return (cylinders, sectors);
             }
         }
@@ -55,10 +55,11 @@ pub struct IsoGeometry {
 }
 
 impl IsoGeometry {
+    #[must_use]
     pub fn new(sectors_per_track: usize) -> Self {
         // according to http://info-coach.fr/atari/software/FD-Soft.php
         match sectors_per_track {
-            10 => IsoGeometry {
+            10 => Self {
                 gap1_size: 60,
                 gap2_size: 12,
                 gap3a_size: 22,
@@ -68,7 +69,7 @@ impl IsoGeometry {
                 sectors_per_track,
                 interleaving: 1,
             },
-            11 => IsoGeometry {
+            11 => Self {
                 gap1_size: 10,
                 gap2_size: 3,
                 gap3a_size: 22,
@@ -78,7 +79,7 @@ impl IsoGeometry {
                 sectors_per_track,
                 interleaving: 1,
             },
-            1 => IsoGeometry {
+            1 => Self {
                 gap1_size: 60,
                 gap2_size: 12,
                 gap3a_size: 22,
@@ -89,7 +90,7 @@ impl IsoGeometry {
                 interleaving: 0,
             },
             // standard for 9 and 18
-            _ => IsoGeometry {
+            _ => Self {
                 gap1_size: 60,
                 gap2_size: 12,
                 gap3a_size: 22,
@@ -200,11 +201,11 @@ where
 }
 
 fn generate_interleaving_table(sectors_per_track: usize, interleaving: usize) -> Vec<usize> {
-    let mut interleaving_table = vec![0_usize; sectors_per_track as usize];
+    let mut interleaving_table = vec![0_usize; sectors_per_track];
 
     for index in 0..sectors_per_track {
         let target = (index * (interleaving + 1)) % sectors_per_track;
-        interleaving_table[target as usize] = index;
+        interleaving_table[target] = index;
     }
 
     interleaving_table
@@ -226,10 +227,8 @@ fn generate_iso_track(
         sectors.push((sector as u8 + 1, sectordata));
     }
 
-    let interleaving_table = generate_interleaving_table(
-        geometry.sectors_per_track as usize,
-        geometry.interleaving as usize,
-    );
+    let interleaving_table =
+        generate_interleaving_table(geometry.sectors_per_track, geometry.interleaving as usize);
 
     // just after the index pulse
     generate_iso_gap(geometry.gap1_size as usize, 0x4e, &mut encoder);
@@ -261,11 +260,12 @@ fn generate_iso_track(
     trackbuf
 }
 
+#[must_use]
 pub fn parse_iso_image(path: &str) -> RawImage {
-    println!("Reading ISO image from {} ...", path);
+    println!("Reading ISO image from {path} ...");
 
-    let mut f = File::open(&path).expect("no file found");
-    let metadata = fs::metadata(&path).expect("unable to read metadata");
+    let mut f = File::open(path).expect("no file found");
+    let metadata = fs::metadata(path).expect("unable to read metadata");
 
     let (cylinders, sectors_per_track) = calculate_floppy_geometry(metadata.len() as usize);
 
@@ -282,7 +282,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
     let bytes_read = f.read(&mut buffer).expect("buffer overflow");
     assert!(bytes_read == metadata.len() as usize);
 
-    let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR as usize);
+    let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR);
     let mut tracks: Vec<RawTrack> = Vec::new();
 
     for cylinder in 0..cylinders {
@@ -291,7 +291,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
                 generate_iso_track(cylinder as u32, head as u32, &geometry, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
-                number_of_cellbytes: trackbuf.len() as usize,
+                number_of_cellbytes: trackbuf.len(),
                 cell_size: PulseDuration(cellsize),
             }];
 

@@ -43,11 +43,13 @@ impl FluxReader {
             self.dma1.borrow(cs).lifcr.write(|w| w.ctcif1().clear()); // Clear interrupt
         }
 
-        if self.dma1.borrow(cs).lisr.read().teif1().is_error() {
-            panic!("DMA Error");
-        }
+        assert!(
+            !self.dma1.borrow(cs).lisr.read().teif1().is_error(),
+            "DMA Error"
+        );
     }
 
+    #[must_use]
     pub fn transmission_active(&self) -> bool {
         self.tim2.cr1.read().cen().is_enabled()
     }

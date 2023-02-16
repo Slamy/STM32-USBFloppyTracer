@@ -70,12 +70,14 @@ pub const STM_TIMER_HZ: f64 = 84e6;
 
 pub const PULSE_REDUCE_SHIFT: usize = 3;
 
+#[must_use]
 pub fn duration_of_rotation_as_stm_tim_raw(rpm: f64) -> usize {
     (60.0 / rpm * STM_TIMER_HZ) as usize
 }
 
 pub type DensityMap = Vec<DensityMapEntry>;
 
+#[must_use]
 pub fn reduce_densitymap(densitymap: DensityMap) -> DensityMap {
     let mut result: DensityMap = Vec::new();
 
@@ -101,6 +103,7 @@ pub struct RawCellData {
 }
 
 impl RawCellData {
+    #[must_use]
     pub fn split_in_parts<'a>(speeds: &'a DensityMap, cells: &'a [u8]) -> Vec<RawCellPart<'a>> {
         let mut parts: Vec<RawCellPart> = Vec::new();
 
@@ -120,12 +123,13 @@ impl RawCellData {
 
         parts
     }
+    #[must_use]
     pub fn construct(speeds: DensityMap, cells: Vec<u8>, has_non_flux_reversal_area: bool) -> Self {
         RawCellDataBuilder {
             speeds,
             cells,
             has_non_flux_reversal_area,
-            parts_builder: |cells, speeds| RawCellData::split_in_parts(speeds, cells),
+            parts_builder: |cells, speeds| Self::split_in_parts(speeds, cells),
         }
         .build()
     }
@@ -141,7 +145,8 @@ impl PartialEq<bool> for Bit {
 }
 
 impl PulseDuration {
-    pub fn similar(&self, other: &PulseDuration, threshold: i32) -> bool {
+    #[must_use]
+    pub fn similar(&self, other: &Self, threshold: i32) -> bool {
         i32::abs(self.0 - other.0) < threshold
     }
 }
@@ -153,6 +158,6 @@ mod tests {
     #[test]
     fn duration_of_rotation_as_stm_tim_raw_test() {
         let result = duration_of_rotation_as_stm_tim_raw(300.0);
-        assert_eq!(result as u32, 16800000);
+        assert_eq!(result as u32, 16_800_000);
     }
 }

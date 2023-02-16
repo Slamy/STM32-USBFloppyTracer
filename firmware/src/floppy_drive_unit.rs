@@ -20,11 +20,12 @@ pub struct FloppyDriveUnit {
 }
 
 impl FloppyDriveUnit {
+    #[must_use]
     pub fn new(
         out_motor_enable: Box<dyn OutputPin<Error = Infallible> + Send>,
         out_drive_select: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
     ) -> Self {
-        FloppyDriveUnit {
+        Self {
             out_motor_enable,
             out_drive_select,
             motor_state: MotorState::Off,
@@ -54,6 +55,7 @@ impl FloppyDriveUnit {
         }
     }
 
+    #[must_use]
     pub fn selection_signal_active(&self) -> bool {
         self.out_drive_select.is_set_low().unwrap()
     }
@@ -64,6 +66,7 @@ impl FloppyDriveUnit {
         self.disable_select_signal_if_possible();
     }
 
+    #[must_use]
     pub fn is_spinning(&self) -> bool {
         matches!(self.motor_state, MotorState::On(_))
     }

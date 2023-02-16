@@ -25,8 +25,8 @@ impl<T> FluxPulseGenerator<T>
 where
     T: FnMut(PulseDuration),
 {
-    pub fn new(sink: T, cell_duration: u32) -> FluxPulseGenerator<T> {
-        FluxPulseGenerator {
+    pub fn new(sink: T, cell_duration: u32) -> Self {
+        Self {
             sink,
             cell_duration,
             pulse_accumulator: cell_duration as i32 * -5,
@@ -87,7 +87,7 @@ where
         // we have 1 cell now, 2 cells in the past and 2 in the future.
         // use the center one as the current
         else if (self.shift_word & 0b0010_0000) != 0 {
-            if self.shift_word & 0b011111 == 0
+            if self.shift_word & 0b01_1111 == 0
                 && (self.enable_weak_bit_generator | self.enable_non_flux_reversal_generator)
             {
                 self.special_generator_state = true;
@@ -108,7 +108,7 @@ where
             };
 
             // give a pulse to our sink
-            (self.sink)(PulseDuration(self.pulse_accumulator as i32));
+            (self.sink)(PulseDuration(self.pulse_accumulator));
 
             // apply correction onto the accumulator in the opposite direction to avoid phase changes
             // for the next pulse.
@@ -129,8 +129,8 @@ impl<T> FluxPulseToCells<T>
 where
     T: FnMut(Bit),
 {
-    pub fn new(sink: T, cell_duration: i32) -> FluxPulseToCells<T> {
-        FluxPulseToCells {
+    pub fn new(sink: T, cell_duration: i32) -> Self {
+        Self {
             sink,
             cell_duration,
         }
@@ -155,9 +155,11 @@ mod tests {
     #[test]
     fn weak_bits_area_test() {
         let expected_actual_data_on_disk: Vec<u8> = vec![
-            0b01010100, //
-            0b10000000, 0b00000000, 0b00000001, //
-            0b01010001, //
+            0b0101_0100, //
+            0b1000_0000,
+            0b0000_0000,
+            0b0000_0001, //
+            0b0101_0001, //
         ];
 
         let mut normal_data = Vec::new();
@@ -178,8 +180,8 @@ mod tests {
         pulse_generator.flush();
         let weak_bit_data_duration: i32 = weak_bit_data.iter().sum();
 
-        println!("{} {:?}", normal_data_duration, normal_data);
-        println!("{} {:?}", weak_bit_data_duration, weak_bit_data);
+        println!("{normal_data_duration} {normal_data:?}");
+        println!("{weak_bit_data_duration} {weak_bit_data:?}");
 
         assert_eq!(normal_data, vec![200, 200, 200, 300, 2300, 200, 200, 400]);
         assert_eq!(
@@ -192,21 +194,29 @@ mod tests {
     #[test]
     fn non_flux_reversal_area_test() {
         let expected_write_data: Vec<u8> = vec![
-            0b01010101, //
-            0b01010101, //
-            0b01010101, 0b01000100, 0b10001010, //
-            0b11111111, 0b11111111, 0b11111111, //
-            0b01010001, //
-            0b00010101, //
+            0b0101_0101, //
+            0b0101_0101, //
+            0b0101_0101,
+            0b0100_0100,
+            0b1000_1010, //
+            0b1111_1111,
+            0b1111_1111,
+            0b1111_1111, //
+            0b0101_0001, //
+            0b0001_0101, //
         ];
 
         let expected_actual_data_on_disk: Vec<u8> = vec![
-            0b01010101, //
-            0b01010101, //
-            0b01010101, 0b01000100, 0b10001010, //
-            0b10000000, 0b00000000, 0b00000001, //
-            0b01010001, //
-            0b00010101, //
+            0b0101_0101, //
+            0b0101_0101, //
+            0b0101_0101,
+            0b0100_0100,
+            0b1000_1010, //
+            0b1000_0000,
+            0b0000_0000,
+            0b0000_0001, //
+            0b0101_0001, //
+            0b0001_0101, //
         ];
 
         let mut write_data = Vec::new();
@@ -258,7 +268,7 @@ mod tests {
                 .for_each(|cell| pulse_generator.feed(Bit(*cell == 1)));
             pulse_generator.flush();
 
-            println!("{:?}", result);
+            println!("{result:?}");
             assert_eq!(
                 result,
                 vec![
@@ -277,7 +287,7 @@ mod tests {
 
             let cellsize = 100;
             let compensation = 10;
-            println!("{:?}", result);
+            println!("{result:?}");
             assert_eq!(
                 result,
                 vec![
@@ -312,7 +322,7 @@ mod tests {
         v1.into_iter()
             .for_each(|pulse_duration| pulse_generator.feed(Bit(pulse_duration == 1)));
         pulse_generator.flush();
-        println!("{:?}", result);
+        println!("{result:?}");
         assert_eq!(
             result,
             vec![
@@ -341,12 +351,12 @@ mod tests {
 
             //result.
             let mut pulseparser = FluxPulseToCells {
-                sink: |val| result.push(if val.0 { 1 } else { 0 }),
+                sink: |val| result.push(u32::from(val.0)),
                 cell_duration: 100,
             };
             v1.into_iter().for_each(|f| pulseparser.feed(f));
 
-            println!("{:?}", result);
+            println!("{result:?}");
             assert_eq!(result, vec![0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1]);
         }
     }

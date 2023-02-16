@@ -34,6 +34,7 @@ async fn wait_for_head_to_settle() {
 }
 
 impl FloppyStepperSignals {
+    #[must_use]
     pub fn new(
         out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
         out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,

@@ -25,8 +25,9 @@ pub struct IsoTrackParser {
 }
 
 impl IsoTrackParser {
+    #[must_use]
     pub fn new(expected_sectors_per_track: Option<usize>, density: Density) -> Self {
-        IsoTrackParser {
+        Self {
             collected_sectors: None,
             expected_sectors_per_track,
             expected_cylinder: None,
@@ -92,7 +93,7 @@ impl TrackParser for IsoTrackParser {
 
         track
             .iter()
-            .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << PULSE_REDUCE_SHIFT)));
+            .for_each(|f| pulseparser.feed(PulseDuration(i32::from(*f) << PULSE_REDUCE_SHIFT)));
 
         let mut iterator = mfm_words.into_iter();
 
@@ -128,14 +129,14 @@ impl TrackParser for IsoTrackParser {
                             // Did we get this sector yet?
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
-                            if !collected_sectors
+                            if collected_sectors
                                 .iter()
-                                .any(|f| f.index == sector_header[2] as u32)
+                                .any(|f| f.index == u32::from(sector_header[2]))
                             {
+                                number_of_duplicate_sector_headers_found_in_stream += 1;
+                            } else {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_dam = 40;
-                            } else {
-                                number_of_duplicate_sector_headers_found_in_stream += 1;
                             }
                             ensure!(sector_header[0] as u32 == self.expected_cylinder.unwrap());
                             ensure!(sector_header[1] as u32 == self.expected_head.unwrap());
@@ -162,7 +163,7 @@ impl TrackParser for IsoTrackParser {
 
                             sector_data.resize(sector_size, 0); // remove CRC at the end
                             collected_sectors.push(CollectedSector {
-                                index: sector_header[2] as u32,
+                                index: u32::from(sector_header[2]),
                                 payload: sector_data,
                             });
 
@@ -186,8 +187,7 @@ impl TrackParser for IsoTrackParser {
 
         self.assumed_disk_type.get_or_insert_with(|| {
             println!(
-                "Number of duplicate sectors in stream: {}",
-                number_of_duplicate_sector_headers_found_in_stream
+                "Number of duplicate sectors in stream: {number_of_duplicate_sector_headers_found_in_stream}"
             );
             if number_of_duplicate_sector_headers_found_in_stream > 5 {
                 println!("Assume 5.25 inch drive.");
@@ -209,10 +209,7 @@ impl TrackParser for IsoTrackParser {
             // numbers won't match on the next.
             let collected_sector_number = self.collected_sectors.as_ref().unwrap().len();
 
-            println!(
-                "Assume {} sectors per track from now on...",
-                collected_sector_number
-            );
+            println!("Assume {collected_sector_number} sectors per track from now on...");
             self.expected_sectors_per_track = Some(collected_sector_number);
         }
 

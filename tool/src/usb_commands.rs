@@ -31,7 +31,7 @@ pub fn configure_device(
     writer
         .next()
         .unwrap()
-        .clone_from_slice(&u32::to_le_bytes(0x12340002));
+        .clone_from_slice(&u32::to_le_bytes(0x1234_0002));
 
     writer
         .next()
@@ -48,6 +48,7 @@ pub fn configure_device(
         .unwrap();
 }
 
+#[must_use]
 pub fn read_raw_track(
     handles: &(DeviceHandle<Context>, u8, u8),
     cylinder: u32,
@@ -58,7 +59,7 @@ pub fn read_raw_track(
     let (handle, endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
-    println!("Read raw track from Cyl:{} Head:{}", cylinder, head);
+    println!("Read raw track from Cyl:{cylinder} Head:{head}");
 
     let mut command_buf = [0u8; 64];
     let mut writer = command_buf.chunks_mut(4);
@@ -66,7 +67,7 @@ pub fn read_raw_track(
     let wait_for_index = if wait_for_index { 1 << 9 } else { 0 };
 
     let header = vec![
-        0x12340004,
+        0x1234_0004,
         cylinder | (head << 8) | wait_for_index,
         duration_to_record as u32,
     ];
@@ -103,7 +104,7 @@ pub fn read_raw_track(
     }
 
     if result.len() == 64 {
-        println!("{:?}", result);
+        println!("{result:?}");
     }
     result
 }
@@ -138,7 +139,7 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
     };
 
     let header = vec![
-        0x12340001,
+        0x1234_0001,
         expected_size as u32,
         remaining_blocks as u32,
         // Fields 00000000 PPPPPPPP 000000NH CCCCCCCC
@@ -156,7 +157,7 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
             .clone_from_slice(&u32::to_le_bytes(i));
     }
 
-    for density_entry in track.densitymap.iter() {
+    for density_entry in &track.densitymap {
         assert!(density_entry.cell_size.0 < 512);
 
         writer.next().unwrap().clone_from_slice(&u32::to_le_bytes(

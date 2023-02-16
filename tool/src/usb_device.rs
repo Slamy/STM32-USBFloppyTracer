@@ -39,10 +39,11 @@ pub fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
         let Ok(size) = handle.read_bulk(*endpoint_in, &mut in_buf, timeout) else {
             return;
         };
-        println!("Cleared residual USB buffer of size {}", size);
+        println!("Cleared residual USB buffer of size {size}");
     }
 }
 
+#[must_use]
 pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {
     let vid = 0x16c0;
     let pid = 0x27dd;

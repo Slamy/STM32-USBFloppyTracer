@@ -111,9 +111,9 @@ impl RawTrackHandler {
                 .write_track(write_precompensation, raw_cell_data)
                 .await
                 .map_err(|error| WriteVerifyError {
+                    error,
                     write_operations,
                     verify_operations,
-                    error,
                 })?;
 
             for read_try in 0..3 {
@@ -126,8 +126,8 @@ impl RawTrackHandler {
                         return Ok(WriteVerifySuccess {
                             write_operations,
                             verify_operations,
-                            max_err,
                             write_precompensation,
+                            max_err,
                         });
                     }
                     Err((RawTrackError::DataNotEqual, track)) => {
@@ -463,7 +463,7 @@ impl RawTrackHandler {
         // How similar should the data be against the reference?
         // The minimum similarity is half of the bit cell. But we are better than that!
         // 35% should be ok!
-        let similarity_treshold = part.cell_size.0 as i32 * 35 / 100;
+        let similarity_treshold = part.cell_size.0 * 35 / 100;
 
         // prepare compare data around the first significant position to compare the data we read back to
         let flux_data_to_write_queue: RefCell<VecDeque<PulseDuration>> =

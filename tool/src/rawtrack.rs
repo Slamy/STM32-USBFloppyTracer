@@ -47,6 +47,7 @@ pub struct RawTrack {
 }
 
 impl RawTrack {
+    #[must_use]
     pub fn new(
         cylinder: u32,
         head: u32,
@@ -54,7 +55,7 @@ impl RawTrack {
         densitymap: DensityMap,
         encoding: Encoding,
     ) -> Self {
-        RawTrack {
+        Self {
             cylinder,
             head,
             raw_data,
@@ -65,6 +66,7 @@ impl RawTrack {
         }
     }
 
+    #[must_use]
     pub fn new_with_non_flux_reversal_area(
         cylinder: u32,
         head: u32,
@@ -73,7 +75,7 @@ impl RawTrack {
         encoding: Encoding,
         has_non_flux_reversal_area: bool,
     ) -> Self {
-        RawTrack {
+        Self {
             cylinder,
             head,
             raw_data,
@@ -84,11 +86,12 @@ impl RawTrack {
         }
     }
 
+    #[must_use]
     pub fn calculate_duration_of_track(&self) -> f64 {
         let mut accumulator = 0.0;
 
-        for entry in self.densitymap.iter() {
-            let seconds_per_cell: f64 = 1e-6_f64 * entry.cell_size.0 as f64 / STM_TIMER_MHZ;
+        for entry in &self.densitymap {
+            let seconds_per_cell: f64 = 1e-6_f64 * f64::from(entry.cell_size.0) / STM_TIMER_MHZ;
             accumulator += seconds_per_cell * entry.number_of_cellbytes as f64 * 8.0;
         }
 
@@ -141,20 +144,20 @@ impl RawTrack {
                     let start_view = if current_track_offset < 5 {
                         0
                     } else {
-                        (current_track_offset - 5) as usize
+                        current_track_offset - 5
                     };
 
                     let impossible_data_position =
                         &self.raw_data[start_view..current_track_offset + 5];
-                    println!("impossible_data_position {:x?}", impossible_data_position);
+                    println!("impossible_data_position {impossible_data_position:x?}");
 
                     for i in impossible_data_position.iter() {
-                        println!("{:02x} {:08b}", i, i);
+                        println!("{i:02x} {i:08b}");
                     }
 
                     let zero_pos = self.raw_data.iter().position(|d| *d == 0);
                     if let Some(zero_found) = zero_pos {
-                        println!("zero_found at {}. This track needs fixing.", zero_found);
+                        println!("zero_found at {zero_found}. This track needs fixing.");
                         println!("zero to end is {}", self.raw_data.len() - zero_found);
                     }
 
@@ -179,10 +182,11 @@ impl RawTrack {
     }
 }
 
+#[must_use]
 pub fn auto_cell_size(tracklen: u32, rpm: f64) -> f64 {
     let number_cells = tracklen * 8;
     let seconds_per_revolution = 60.0 / rpm;
-    let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / number_cells as f64;
+    let microseconds_per_cell = 10_f64.powi(6) * seconds_per_revolution / f64::from(number_cells);
     STM_TIMER_MHZ * microseconds_per_cell
 }
 
@@ -206,7 +210,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
 
         if matches!(mfm, MfmWord::SyncWord) {
             let sync_type = queue.borrow_mut().pop_back().unwrap();
-            println!("{} {:x?}", awaiting_dam, sync_type);
+            println!("{awaiting_dam} {sync_type:x?}");
 
             if awaiting_dam > 0 && matches!(sync_type, MfmWord::Enc(ISO_DAM)) {
                 println!("We got our data!");
@@ -230,7 +234,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
                     sector_header.push(val);
                 }
             }
-            println!("{:x?}", sector_header);
+            println!("{sector_header:x?}");
 
             if sector_header[2] != idam_sector {
                 continue;
@@ -249,7 +253,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
         }
     }
 
-    println!("{:x?}", sector_header);
+    println!("{sector_header:x?}");
     let sector_size = 128 << sector_header[3];
     let mut sector_data = Vec::new();
     mfmd.sync_detector_active = false;
@@ -262,7 +266,7 @@ pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
         let MfmWord::Enc(value) = queue.borrow_mut().pop_back().unwrap() else {panic!();};
         sector_data.push(value);
     }
-    println!("{:x?}", sector_data);
+    println!("{sector_data:x?}");
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -274,13 +278,13 @@ pub struct TrackFilter {
 impl TrackFilter {
     fn from_track_split(track_split: Vec<&str>, head: Option<u32>) -> Self {
         if track_split.len() == 1 {
-            return TrackFilter {
+            return Self {
                 cyl_start: track_split[0].parse().ok(),
                 cyl_end: track_split[0].parse().ok(),
                 head,
             };
         } else if track_split.len() == 2 {
-            return TrackFilter {
+            return Self {
                 cyl_start: track_split[0].parse().ok(),
                 cyl_end: track_split[1].parse().ok(),
                 head,
@@ -289,6 +293,7 @@ impl TrackFilter {
         panic!("Unexpected track filter parameter!")
     }
 
+    #[must_use]
     pub fn new(param: &str) -> Self {
         let head_split: Vec<_> = param.split(':').collect();
         let track_split: Vec<&str> = head_split[0].split('-').collect();

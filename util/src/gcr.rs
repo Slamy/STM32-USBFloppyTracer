@@ -40,8 +40,8 @@ where
     let upper_nibble = byte >> 4;
     let lower_nibble = byte & 0xf;
 
-    let mut gcr_word = (GCR_ENCODE_TABLE[upper_nibble as usize] as u16) << 5
-        | GCR_ENCODE_TABLE[lower_nibble as usize] as u16;
+    let mut gcr_word = u16::from(GCR_ENCODE_TABLE[upper_nibble as usize]) << 5
+        | u16::from(GCR_ENCODE_TABLE[lower_nibble as usize]);
 
     for _ in 0..10 {
         sink(Bit((gcr_word & (1 << 9)) != 0));
@@ -125,7 +125,7 @@ mod tests {
             decoder_table[*i.1 as usize] = i.0 as u8;
         }
 
-        println!("{:?}", decoder_table);
+        println!("{decoder_table:?}");
         assert_eq!(GCR_DECODE_TABLE, decoder_table);
     }
 
@@ -161,7 +161,7 @@ mod tests {
         let mut decoder = GcrDecoder::new(|f| result.push(f));
 
         cells.iter().for_each(|f| decoder.feed(*f));
-        println!("{:02x?}", result);
+        println!("{result:02x?}");
         assert_eq!(
             result,
             vec![

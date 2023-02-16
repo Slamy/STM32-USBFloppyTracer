@@ -48,12 +48,7 @@ where
     }
 
     fn encode_mfm_bit(&mut self, val: u32, mask: u32) {
-        if (val & mask) != 0 {
-            // Encode 1
-            (self.sink)(Bit(false)); // Clock Bit 0
-            (self.sink)(Bit(true)); // Data Bit 1
-            self.last_bit = Bit(true);
-        } else {
+        if (val & mask) == 0 {
             // Encode 0
             if self.last_bit.0 {
                 (self.sink)(Bit(false));
@@ -63,12 +58,17 @@ where
                 (self.sink)(Bit(false));
             }
             self.last_bit = Bit(false);
+        } else {
+            // Encode 1
+            (self.sink)(Bit(false)); // Clock Bit 0
+            (self.sink)(Bit(true)); // Data Bit 1
+            self.last_bit = Bit(true);
         }
     }
 
     pub fn feed_encoded8(&mut self, mut val: u8) {
         for _ in 0..8 {
-            self.encode_mfm_bit(val as u32, 1 << 7);
+            self.encode_mfm_bit(u32::from(val), 1 << 7);
             val <<= 1;
         }
     }
@@ -161,8 +161,8 @@ where
         }
 
         if self.sync_detector_active {
-            self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
-            if (self.sync_buffer & 0xffffffffffff) == 0x448944894489 {
+            self.sync_buffer = (self.sync_buffer << 1) | u64::from(cell.0);
+            if (self.sync_buffer & 0xffff_ffff_ffff) == 0x4489_4489_4489 {
                 self.in_sync = true;
                 self.shift_count = 0;
                 self.byte_buffer = 0;
@@ -174,7 +174,7 @@ where
         if self.in_sync {
             if (self.shift_count & 1) == 1 {
                 self.byte_buffer <<= 1;
-                self.byte_buffer |= if cell.0 { 1 } else { 0 };
+                self.byte_buffer |= u8::from(cell.0);
             }
             self.shift_count += 1;
             if self.shift_count == 16 {
@@ -211,8 +211,8 @@ where
     }
 
     pub fn feed(&mut self, cell: Bit) {
-        self.sync_buffer = (self.sync_buffer << 1) | (if cell.0 { 1 } else { 0 });
-        if (self.sync_buffer & 0xffffffff) == 0x44894489 {
+        self.sync_buffer = (self.sync_buffer << 1) | u64::from(cell.0);
+        if (self.sync_buffer & 0xffff_ffff) == 0x4489_4489 {
             self.in_sync = true;
             self.shift_count = 0;
             self.word_buffer = 0;
@@ -222,7 +222,7 @@ where
 
         if self.in_sync {
             self.word_buffer <<= 1;
-            self.word_buffer |= if cell.0 { 1 } else { 0 };
+            self.word_buffer |= u32::from(cell.0);
 
             self.shift_count += 1;
             if self.shift_count == 32 {
@@ -253,11 +253,11 @@ mod tests {
             MfmWord::Enc(1),
         ];
         let mut result: Vec<u8> = Vec::new();
-        let mut encoder = MfmEncoder::new(|val| result.push(if val.0 { 1 } else { 0 }));
+        let mut encoder = MfmEncoder::new(|val| result.push(u8::from(val.0)));
 
         input.into_iter().for_each(|cell| encoder.feed(cell));
 
-        println!("{:?}", result);
+        println!("{result:?}");
         assert_eq!(
             result,
             vec![

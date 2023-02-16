@@ -18,8 +18,9 @@ pub struct C64TrackParser {
 }
 
 impl C64TrackParser {
+    #[must_use]
     pub fn new() -> Self {
-        C64TrackParser {
+        Self {
             collected_sectors: None,
             track_config: None,
             expected_track_number: None,
@@ -68,7 +69,7 @@ impl TrackParser for C64TrackParser {
 
         track
             .iter()
-            .for_each(|f| pulseparser.feed(PulseDuration((*f as i32) << 3)));
+            .for_each(|f| pulseparser.feed(PulseDuration(i32::from(*f) << 3)));
 
         let mut iterator = gcr_results.iter();
 
@@ -98,7 +99,7 @@ impl TrackParser for C64TrackParser {
 
                         let checksum = sector_header
                             .iter()
-                            .cloned()
+                            .copied()
                             .reduce(|accu, input| accu ^ input)
                             .unwrap();
 
@@ -109,7 +110,7 @@ impl TrackParser for C64TrackParser {
 
                             if !collected_sectors
                                 .iter()
-                                .any(|f| f.index == sector_header[1] as u32)
+                                .any(|f| f.index == u32::from(sector_header[1]))
                             {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_data_block = 20;
@@ -125,7 +126,7 @@ impl TrackParser for C64TrackParser {
                         let sector_size = 256;
                         let mut sector_data = Vec::with_capacity(sector_size + 1);
 
-                        for _ in 0..sector_size + 1 {
+                        for _ in 0..=sector_size {
                             if let Some(GcrDecoderResult::Byte(val)) = iterator.next() {
                                 sector_data.push(*val);
                             } else {
@@ -135,7 +136,7 @@ impl TrackParser for C64TrackParser {
 
                         let checksum = sector_data
                             .iter()
-                            .cloned()
+                            .copied()
                             .reduce(|accu, input| accu ^ input)
                             .unwrap();
 
@@ -144,7 +145,7 @@ impl TrackParser for C64TrackParser {
 
                             sector_data.resize(sector_size, 0); // remove checksum at the end
                             collected_sectors.push(CollectedSector {
-                                index: sector_header[1] as u32,
+                                index: u32::from(sector_header[1]),
                                 payload: sector_data,
                             });
 

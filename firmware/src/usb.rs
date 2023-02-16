@@ -42,6 +42,7 @@ pub struct UsbHandler<'a> {
 }
 
 impl UsbHandler<'_> {
+    #[must_use]
     pub fn new<'a>(
         usb_serial: CdcAcmClass<'a, UsbBus<USB>>,
         usb_dev: UsbDevice<'a, UsbBus<USB>>,
@@ -98,7 +99,7 @@ impl UsbHandler<'_> {
                     let command = u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                     match command {
                         // Write track
-                        0x12340001 => {
+                        0x1234_0001 => {
                             self.expected_size =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap())
                                     as usize;
@@ -130,22 +131,22 @@ impl UsbHandler<'_> {
                             self.receive_buffer.reserve(self.expected_size);
                         }
                         // Configure drive
-                        0x12340002 => {
+                        0x1234_0002 => {
                             let settings =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                             let index_sim_frequency =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
 
-                            let selected_drive = if settings & 1 != 0 {
-                                DriveSelectState::B
-                            } else {
+                            let selected_drive = if settings & 1 == 0 {
                                 DriveSelectState::A
+                            } else {
+                                DriveSelectState::B
                             };
 
-                            let floppy_density = if settings & 2 != 0 {
-                                Density::High
-                            } else {
+                            let floppy_density = if settings & 2 == 0 {
                                 Density::SingleDouble
+                            } else {
+                                Density::High
                             };
                             cortex_m::interrupt::free(|cs| {
                                 INDEX_SIM
@@ -164,7 +165,7 @@ impl UsbHandler<'_> {
                             });
                         }
                         // step to track
-                        0x12340003 => {
+                        0x1234_0003 => {
                             let cylinder =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                             cortex_m::interrupt::free(|cs| {
@@ -180,7 +181,7 @@ impl UsbHandler<'_> {
                             });
                         }
                         // read track
-                        0x12340004 => {
+                        0x1234_0004 => {
                             let packed_configuration =
                                 u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
                             let duration_to_record =
