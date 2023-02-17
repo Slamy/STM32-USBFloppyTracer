@@ -1,5 +1,4 @@
 use crate::rawtrack::{RawImage, RawTrack};
-use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Read;
 use std::slice::ChunksExact;
@@ -8,7 +7,7 @@ use util::c64_geometry::{get_track_settings, TrackConfiguration};
 use util::gcr::to_gcr_stream;
 use util::{DensityMapEntry, PulseDuration};
 
-// http://www.baltissen.org/newhtm/1541c.htm
+// Info from http://www.baltissen.org/newhtm/1541c.htm
 
 const CYLINDERS: u8 = 35;
 const SECTORS_TOTAL: usize = 683;
@@ -17,6 +16,24 @@ const BYTES_PER_SECTOR: usize = 256;
 // Nothing specific as disk id. Just something random.
 const ID1: u8 = 0x39_u8;
 const ID2: u8 = 0x30_u8;
+
+trait RawGcrSink {
+    fn feed_raw(&mut self, word: u8);
+    fn feed_gcr(&mut self, word: u8);
+}
+
+impl<T> RawGcrSink for BitStreamCollector<T>
+where
+    T: FnMut(u8),
+{
+    fn feed_raw(&mut self, word: u8) {
+        to_bit_stream(word, |cell| self.feed(cell));
+    }
+
+    fn feed_gcr(&mut self, word: u8) {
+        to_gcr_stream(word, |cell| self.feed(cell));
+    }
+}
 
 pub fn generate_track(
     tracknum: u8,
@@ -33,54 +50,52 @@ pub fn generate_track(
         let sector_buffer = sectors.next().expect("Not enough sectors for this track");
         assert!(sector_buffer.len() == BYTES_PER_SECTOR);
 
-        let collector = RefCell::new(BitStreamCollector::new(|byte| trackbuf.push(byte)));
-        let feed_raw = |word| to_bit_stream(word, |cell| collector.borrow_mut().feed(cell));
-        let feed_gcr = |word| to_gcr_stream(word, |cell| collector.borrow_mut().feed(cell));
+        let mut col = BitStreamCollector::new(|byte| trackbuf.push(byte));
 
         // Header
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
 
         let checksum: u8 = sector ^ tracknum ^ ID1 ^ ID2;
-        feed_gcr(0x08);
-        feed_gcr(checksum);
-        feed_gcr(sector);
-        feed_gcr(tracknum);
-        feed_gcr(ID2);
-        feed_gcr(ID1);
-        feed_gcr(0x0f);
-        feed_gcr(0x0f);
+        col.feed_gcr(0x08);
+        col.feed_gcr(checksum);
+        col.feed_gcr(sector);
+        col.feed_gcr(tracknum);
+        col.feed_gcr(ID2);
+        col.feed_gcr(ID1);
+        col.feed_gcr(0x0f);
+        col.feed_gcr(0x0f);
 
         //Gap #3
-        feed_raw(0x55);
-        feed_raw(0x55);
-        feed_raw(0x55);
-        feed_raw(0x55);
-        feed_raw(0x55);
+        col.feed_raw(0x55);
+        col.feed_raw(0x55);
+        col.feed_raw(0x55);
+        col.feed_raw(0x55);
+        col.feed_raw(0x55);
 
         //Data
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
-        feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
+        col.feed_raw(0xff);
 
         let mut checksum = 0;
-        feed_gcr(0x07);
+        col.feed_gcr(0x07);
 
         for byte in sector_buffer {
-            feed_gcr(*byte);
+            col.feed_gcr(*byte);
             checksum ^= byte;
         }
-        feed_gcr(checksum);
-        feed_gcr(0x00);
-        feed_gcr(0x00);
+        col.feed_gcr(checksum);
+        col.feed_gcr(0x00);
+        col.feed_gcr(0x00);
 
         for _ in 0..settings.gap_size {
-            feed_raw(0x55);
+            col.feed_raw(0x55);
         }
     }
     (trackbuf, settings)
