@@ -1,3 +1,4 @@
+#[derive(Debug, Eq, PartialEq)]
 pub struct TrackConfiguration {
     pub cellsize: usize,
     pub sectors: u8,

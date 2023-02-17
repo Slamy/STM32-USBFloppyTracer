@@ -17,6 +17,8 @@ pub struct C64TrackParser {
     expected_track_number: Option<u32>,
 }
 
+const SECTOR_SIZE: usize = 256;
+
 impl C64TrackParser {
     #[must_use]
     pub fn new() -> Self {
@@ -117,16 +119,15 @@ impl TrackParser for C64TrackParser {
                             }
                             ensure!(sector_header[2] as u32 == self.expected_track_number.unwrap());
                         } else {
-                            println!("Checksum of sector {} header was wrong", sector_header[1])
+                            println!("Checksum of sector {} header was wrong", sector_header[1]);
                         }
                     }
 
                     Some(GcrDecoderResult::Byte(0x07)) if awaiting_data_block > 0 => {
                         // Data Block
-                        let sector_size = 256;
-                        let mut sector_data = Vec::with_capacity(sector_size + 1);
+                        let mut sector_data = Vec::with_capacity(SECTOR_SIZE + 1);
 
-                        for _ in 0..=sector_size {
+                        for _ in 0..=SECTOR_SIZE {
                             if let Some(GcrDecoderResult::Byte(val)) = iterator.next() {
                                 sector_data.push(*val);
                             } else {
@@ -143,7 +144,7 @@ impl TrackParser for C64TrackParser {
                         if checksum == 0 {
                             let collected_sectors = self.collected_sectors.as_mut().unwrap();
 
-                            sector_data.resize(sector_size, 0); // remove checksum at the end
+                            sector_data.resize(SECTOR_SIZE, 0); // remove checksum at the end
                             collected_sectors.push(CollectedSector {
                                 index: u32::from(sector_header[1]),
                                 payload: sector_data,
@@ -153,7 +154,7 @@ impl TrackParser for C64TrackParser {
                                 // Exit it after we got all expected sectors.
                             }
                         } else {
-                            println!("Checksum of sector {} data was wrong", sector_header[1])
+                            println!("Checksum of sector {} data was wrong", sector_header[1]);
                         }
                     }
                     _ => {}
@@ -183,5 +184,55 @@ impl TrackParser for C64TrackParser {
 
     fn step_size(&self) -> usize {
         2
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::image_reader::image_d64::generate_track;
+    use rand::{rngs::SmallRng, RngCore, SeedableRng};
+    use std::vec;
+    use util::{bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator};
+
+    #[test]
+    fn track_parse_test() {
+        let mut rng = SmallRng::seed_from_u64(0x42);
+        let tracknum = 10;
+        let real_cylinder = 2 * (tracknum - 1);
+
+        let track_config = get_track_settings(tracknum);
+        let mut buffer = vec![0; SECTOR_SIZE * track_config.sectors as usize];
+        rng.fill_bytes(&mut buffer);
+
+        let mut sectors = buffer.chunks_exact(SECTOR_SIZE);
+        assert_eq!(sectors.len(), track_config.sectors as usize);
+
+        let (trackbuf, track_config2) = generate_track(tracknum as u8, &mut sectors);
+
+        assert_eq!(track_config, track_config2);
+
+        let mut pulse_data = Vec::new();
+        let mut pulse_generator = FluxPulseGenerator::new(
+            |f| pulse_data.push(f.0 as u8),
+            track_config.cellsize as u32 >> 3,
+        );
+        for i in trackbuf {
+            to_bit_stream(i, |bit| pulse_generator.feed(bit));
+        }
+        // append some data to allow and ending pulse
+        to_bit_stream(0x55, |bit| pulse_generator.feed(bit));
+        pulse_generator.flush();
+
+        let mut parser = C64TrackParser::new();
+        parser.expect_track(real_cylinder as u32, 0);
+        let result = parser.parse_raw_track(&pulse_data).unwrap();
+
+        // Check parsed track is equal to data which was used to generate the track
+        assert_eq!(buffer, result.payload);
+        // just to be sure that we used pseudo random values
+        assert_eq!(result.payload[100], 152);
+        assert_eq!(result.payload[200], 126);
+        assert_eq!(result.payload[300], 83);
     }
 }

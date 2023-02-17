@@ -18,7 +18,7 @@ const CYLINDERS: u32 = 80;
 const HEADS: u32 = 2;
 const BYTES_PER_SECTOR: u32 = 512;
 
-fn generate_amiga_sector<T>(
+fn generate_sector<T>(
     cylinder: u32,
     head: u32,
     sector: u32,
@@ -103,7 +103,7 @@ fn generate_amiga_sector<T>(
     }
 }
 
-fn generate_amiga_track(cylinder: u32, head: u32, sectors: &mut ChunksExact<u8>) -> Vec<u8> {
+pub fn generate_track(cylinder: u32, head: u32, sectors: &mut ChunksExact<u8>) -> Vec<u8> {
     let mut trackbuf: Vec<u8> = Vec::new();
     let mut collector = BitStreamCollector::new(|f| trackbuf.push(f));
     let mut encoder = MfmEncoder::new(|cell| collector.feed(cell));
@@ -111,7 +111,7 @@ fn generate_amiga_track(cylinder: u32, head: u32, sectors: &mut ChunksExact<u8>)
     for sector in 0..SECTORS_PER_TRACK {
         let sectordata = sectors.next().unwrap();
 
-        generate_amiga_sector(cylinder, head, sector, sectordata, &mut encoder);
+        generate_sector(cylinder, head, sector, sectordata, &mut encoder);
     }
 
     trackbuf
@@ -138,7 +138,7 @@ pub fn parse_adf_image(path: &str) -> RawImage {
 
     for cylinder in 0..CYLINDERS {
         for head in 0..HEADS {
-            let trackbuf = generate_amiga_track(cylinder, head, &mut sectors);
+            let trackbuf = generate_track(cylinder, head, &mut sectors);
 
             let densitymap = vec![DensityMapEntry {
                 number_of_cellbytes: trackbuf.len(),
@@ -250,11 +250,11 @@ mod tests {
     }
 
     #[test]
-    fn amiga_track_check_test() {
+    fn track_check_test() {
         let buffer = vec![0x12; (BYTES_PER_SECTOR * SECTORS_PER_TRACK) as usize];
         let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR as usize);
 
-        let trackbuf = generate_amiga_track(30, 1, &mut sectors);
+        let trackbuf = generate_track(30, 1, &mut sectors);
         check_aligned_amiga_mfm_track(&trackbuf);
     }
 }

@@ -63,7 +63,7 @@ struct Args {
     flippy: Option<u32>,
 }
 
-fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: RawImage) {
+fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: &RawImage) {
     let write_iterator = image.tracks.iter();
     let mut verify_iterator = image.tracks.iter();
 
@@ -78,10 +78,10 @@ fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: 
         wait_for_last_answer(usb_handles, verify_track);
     }
 
-    println!("--- Disk Image written and verified! ---")
+    println!("--- Disk Image written and verified! ---");
 }
 
-fn write_debug_text_file(path: &str, image: RawImage) {
+fn write_debug_text_file(path: &str, image: &RawImage) {
     let f = File::create(path).expect("Unable to create file");
     let mut f = BufWriter::new(f);
 
@@ -159,7 +159,7 @@ fn main() {
         }
 
         if let Some(debug_text_file) = cli.debug_text_file {
-            write_debug_text_file(&debug_text_file, image);
+            write_debug_text_file(&debug_text_file, &image);
             exit(0);
         }
 
@@ -237,7 +237,7 @@ fn main() {
         if cli.wprecomp_calib {
             calibration(&usb_handles, image);
         } else {
-            write_and_verify_image(&usb_handles, image);
+            write_and_verify_image(&usb_handles, &image);
         }
     }
 }

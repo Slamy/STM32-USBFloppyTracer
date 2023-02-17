@@ -276,7 +276,7 @@ pub struct TrackFilter {
     pub head: Option<u32>,
 }
 impl TrackFilter {
-    fn from_track_split(track_split: Vec<&str>, head: Option<u32>) -> Self {
+    fn from_track_split(track_split: &[&str], head: Option<u32>) -> Self {
         if track_split.len() == 1 {
             return Self {
                 cyl_start: track_split[0].parse().ok(),
@@ -299,9 +299,9 @@ impl TrackFilter {
         let track_split: Vec<&str> = head_split[0].split('-').collect();
 
         if head_split.len() == 1 {
-            return Self::from_track_split(track_split, None);
+            return Self::from_track_split(&track_split, None);
         } else if head_split.len() == 2 {
-            return Self::from_track_split(track_split, head_split[1].parse().ok());
+            return Self::from_track_split(&track_split, head_split[1].parse().ok());
         }
         panic!("Unexpected track filter parameter!")
     }

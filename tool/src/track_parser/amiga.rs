@@ -19,8 +19,7 @@ pub const SECTORS_PER_AMIGA_DD_TRACK: usize = 11;
 fn read_even_bits<'a>(iterator: &mut impl Iterator<Item = &'a RawMfmWord>) -> u32 {
     match iterator.next() {
         Some(RawMfmWord::Raw(raw)) => raw & AMIGA_MFM_MASK,
-        Some(RawMfmWord::SyncWord) => 0,
-        _ => 0,
+        _ => 0, // SyncWord as well
     }
 }
 
@@ -56,15 +55,15 @@ impl TrackParser for AmigaTrackParser {
     }
 
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
-        let expected_track_number = self.expected_track_number.unwrap();
+        let expected_track_number = self.expected_track_number.expect("Program flow error");
         let cellsize_2micros = 168;
         let mut mfm_words: Vec<RawMfmWord> = Vec::new();
         let mut mfmd = MfmDataSeperator::new(|f| mfm_words.push(f));
         let mut pulseparser = FluxPulseToCells::new(|val| mfmd.feed(val), cellsize_2micros);
 
-        track
-            .iter()
-            .for_each(|f| pulseparser.feed(PulseDuration(i32::from(*f) << 3)));
+        for mfm_word in track {
+            pulseparser.feed(PulseDuration(i32::from(*mfm_word) << 3));
+        }
 
         let mut iterator = mfm_words.iter();
 
@@ -221,4 +220,45 @@ fn parse_amiga_sector<'a>(
         index: sector,
         payload: sector_data,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::image_reader::image_adf::generate_track;
+    use std::vec;
+    use util::{bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator};
+    const BYTES_PER_SECTOR: usize = WORDS_PER_SECTOR * 4;
+    use rand::{rngs::SmallRng, RngCore, SeedableRng};
+
+    #[test]
+    fn track_parse_test() {
+        let mut rng = SmallRng::seed_from_u64(0x42);
+        let mut buffer = vec![0; BYTES_PER_SECTOR * SECTORS_PER_AMIGA_DD_TRACK];
+        rng.fill_bytes(&mut buffer);
+
+        let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR);
+        assert_eq!(sectors.len(), 11);
+
+        let trackbuf = generate_track(30, 1, &mut sectors);
+        let mut pulse_data = Vec::new();
+        let mut pulse_generator = FluxPulseGenerator::new(|f| pulse_data.push(f.0 as u8), 168 >> 3);
+        for i in trackbuf {
+            to_bit_stream(i, |bit| pulse_generator.feed(bit));
+        }
+        // append some data to allow and ending pulse
+        to_bit_stream(0x55, |bit| pulse_generator.feed(bit));
+        pulse_generator.flush();
+
+        let mut parser = AmigaTrackParser::new(Density::SingleDouble);
+        parser.expect_track(30, 1);
+        let result = parser.parse_raw_track(&pulse_data).unwrap();
+
+        // Check parsed track is equal to data which was used to generate the track
+        assert_eq!(buffer, result.payload);
+        // just to be sure that we used pseudo random values
+        assert_eq!(result.payload[100], 152);
+        assert_eq!(result.payload[200], 126);
+        assert_eq!(result.payload[300], 83);
+    }
 }

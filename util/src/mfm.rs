@@ -1,7 +1,7 @@
 use crate::Bit;
 extern crate alloc;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MfmWord {
     Enc(u8),
     SyncWord,
