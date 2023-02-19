@@ -65,8 +65,11 @@ The pin assigment hasn't changed to keep the software compatible.
 
 ## Prerequisites for building this project
 
-The tool requires the [capsimage library](https://github.com/simonowen/capsimage).
-Build and install it.
+Submodules must be synchronized if not yet done.
+
+    git submodule init
+    git submodule sync
+    git submodule update
 
 If rust is not installed yet, it is suggested to install it using [rustup](https://www.rust-lang.org/tools/install).
 Don't install rust using the package manager as one might get only older versions of rust.

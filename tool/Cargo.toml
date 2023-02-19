@@ -22,6 +22,7 @@ chrono = "0.4.23"
 
 [build-dependencies]
 bindgen = "0.63.0"
+cmake = "0.1"
 
 [dev-dependencies]
 rand = {version = "0.8.5", features = ["small_rng"] }

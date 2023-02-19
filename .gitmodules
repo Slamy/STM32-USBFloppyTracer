@@ -1,0 +1,3 @@
+[submodule "extern/capsimage"]
+	path = extern/capsimage
+	url = https://github.com/simonowen/capsimage.git
