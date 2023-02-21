@@ -37,6 +37,7 @@ use usb::UsbHandler;
 use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
+use util::{USB_PID, USB_VID};
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -195,7 +196,7 @@ fn main() -> ! {
 
     let serial = MinimalVendorClass::new(usb_bus, 64);
 
-    let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+    let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(USB_VID, USB_PID))
         .manufacturer("Slamy")
         .product("STM32-USBFloppyTracer")
         .device_class(0xff)

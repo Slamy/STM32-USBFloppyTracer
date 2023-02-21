@@ -70,6 +70,9 @@ pub const STM_TIMER_HZ: f64 = 84e6;
 
 pub const PULSE_REDUCE_SHIFT: usize = 3;
 
+pub const USB_VID: u16 = 0x1209; // https://pid.codes/
+pub const USB_PID: u16 = 0x27dd;
+
 #[must_use]
 pub fn duration_of_rotation_as_stm_tim_raw(rpm: f64) -> usize {
     (60.0 / rpm * STM_TIMER_HZ) as usize

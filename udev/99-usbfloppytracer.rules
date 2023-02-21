@@ -1,5 +1,5 @@
 # STM32-USBFloppyTracer
 
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="27dd", \
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="27dd", \
     MODE:="0666", \
     SYMLINK+="slamyflop_%n"

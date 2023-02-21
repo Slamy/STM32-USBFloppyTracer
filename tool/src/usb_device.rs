@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use rusb::{Context, Device, DeviceDescriptor, DeviceHandle, Direction, TransferType, UsbContext};
+use util::{USB_PID, USB_VID};
 
 fn open_usb_device<T: UsbContext>(
     context: &mut T,
@@ -45,11 +46,9 @@ pub fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
 
 #[must_use]
 pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {
-    let vid = 0x16c0;
-    let pid = 0x27dd;
     let mut context = Context::new().unwrap();
 
-    let (device, _device_desc, mut handle) = open_usb_device(&mut context, vid, pid)?;
+    let (device, _device_desc, mut handle) = open_usb_device(&mut context, USB_VID, USB_PID)?;
 
     // This seems to be optional for Linux but is required for Windows
     handle.claim_interface(0).unwrap();
