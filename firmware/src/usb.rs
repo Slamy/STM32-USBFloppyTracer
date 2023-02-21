@@ -4,13 +4,12 @@ use alloc::{collections::VecDeque, vec::Vec};
 use cortex_m::interrupt::Mutex;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::prelude::*;
-use usbd_serial::CdcAcmClass;
 use util::{
     Cylinder, Density, DensityMap, DensityMapEntry, DriveSelectState, Head, PulseDuration,
     RawCellData, Track,
 };
 
-use crate::{interrupts, rprintln, INDEX_SIM};
+use crate::{interrupts, rprintln, usb_class::MinimalVendorClass, INDEX_SIM};
 
 pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
@@ -28,7 +27,7 @@ pub enum Command {
 }
 
 pub struct UsbHandler<'a> {
-    usb_serial: CdcAcmClass<'a, UsbBus<USB>>,
+    usb_serial: MinimalVendorClass<'a, UsbBus<USB>>,
     usb_dev: UsbDevice<'a, UsbBus<USB>>,
     receive_buffer: Vec<u8>,
     speeds: DensityMap,
@@ -44,7 +43,7 @@ pub struct UsbHandler<'a> {
 impl UsbHandler<'_> {
     #[must_use]
     pub fn new<'a>(
-        usb_serial: CdcAcmClass<'a, UsbBus<USB>>,
+        usb_serial: MinimalVendorClass<'a, UsbBus<USB>>,
         usb_dev: UsbDevice<'a, UsbBus<USB>>,
     ) -> UsbHandler<'a> {
         UsbHandler {
@@ -80,7 +79,7 @@ impl UsbHandler<'_> {
     }
 
     pub fn handle(&mut self) {
-        let serial: &mut CdcAcmClass<UsbBus<USB>> = &mut self.usb_serial;
+        let serial: &mut MinimalVendorClass<UsbBus<USB>> = &mut self.usb_serial;
 
         // Some data to send?
         if let Some(front) = self.tx_buffer.front() {

@@ -12,6 +12,7 @@ pub mod index_sim;
 pub mod interrupts;
 pub mod track_raw;
 pub mod usb;
+pub mod usb_class;
 
 extern crate alloc;
 
@@ -36,7 +37,6 @@ use usb::UsbHandler;
 use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
-use usbd_serial::CdcAcmClass;
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -48,6 +48,7 @@ use alloc_cortex_m::CortexMHeap;
 
 use crate::floppy_drive_unit::FloppyDriveUnit;
 use crate::floppy_stepper::FloppyStepperSignals;
+use crate::usb_class::MinimalVendorClass;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -192,7 +193,7 @@ fn main() -> ! {
     let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, Box::new(out_write_gate));
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
-    let serial = CdcAcmClass::new(usb_bus, 64);
+    let serial = MinimalVendorClass::new(usb_bus, 64);
 
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Slamy")
