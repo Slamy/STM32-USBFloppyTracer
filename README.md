@@ -71,6 +71,30 @@ Submodules must be synchronized if not yet done.
     git submodule sync
     git submodule update
 
+This project requires an external library for parsing IPF images.
+To build it, install CMake and a GNU Compiler toolchain.
+
+### GNU Compiler Toolchain for Windows
+
+One option which I've tested is [LLVM-MinGW](https://www.mingw-w64.org/downloads/#llvm-mingw)
+For CMake just install it from the [website](https://cmake.org/download/).
+
+### USB Driver for Windows
+
+You might have to install [Zadig](https://zadig.akeo.ie/) to get the WinUSB drivers.
+The USB device might not be correctly detected without these.
+This step is not required under Linux.
+
+### UDev Rules for linux
+
+Without additional udev rules, only the root user has access to the USB device.
+Install them like this, to allow normal users as well.
+
+	sudo cp udev/99-usbfloppytracer.rules /etc/udev/rules.d/
+	sudo udevadm control -R
+
+### Rust
+
 If rust is not installed yet, it is suggested to install it using [rustup](https://www.rust-lang.org/tools/install).
 Don't install rust using the package manager as one might get only older versions of rust.
 
@@ -100,11 +124,6 @@ Install cargo-embed as it is used for flashing:
 
 	cargo build --release
 	cargo install --path tool/
-
-## Install udev rules to access the device as normal user:
-
-	sudo cp udev/99-usbfloppytracer.rules /etc/udev/rules.d/
-	sudo udevadm control -R
 
 ## Why not use the Greaseweazle or the Kryoflux?
 

@@ -1,3 +1,7 @@
+// I don't get this. But it seems to be required under Windows
+// to make bindgen to work while compilation is not an issue.
+#undef _WIN32
+
 #include <stdint.h>
 #include <caps/CapsLibAll.h>
 

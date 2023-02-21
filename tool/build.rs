@@ -5,27 +5,44 @@ use std::path::PathBuf;
 
 fn main() {
     // build libcapsimage via cmake
-    let dst = cmake::Config::new("../extern/capsimage/")
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .build();
 
-    let capsimage_include_path = dst.join("include");
-    let capsimage_lib_path = dst.join("lib");
+    let windows_target = env::var("CARGO_CFG_TARGET_OS").unwrap().contains("windows");
+
+    let mut capsimage_cmake = cmake::Config::new("../extern/capsimage/");
+
+    if windows_target {
+        // capsimage can't be build with msvc.
+        // Either GNU or clang will do fine though
+        capsimage_cmake
+            .target("windows-gnu")
+            .define("CMAKE_BUILD_TYPE", "Release");
+    }
+
+    let capsimage_build_path = capsimage_cmake.define("BUILD_SHARED_LIBS", "OFF").build();
+
+    let capsimage_include_path = capsimage_build_path.join("include");
+    let capsimage_lib_path = capsimage_build_path.join("lib");
 
     println!(
         "cargo:rustc-link-search=native={}",
         capsimage_lib_path.display()
     );
 
+    let libname = if windows_target {
+        "CAPSImg"
+    } else {
+        "capsimage"
+    };
     // link capsimage to this project
-    println!("cargo:rustc-link-lib=static=capsimage");
+    println!("cargo:rustc-link-lib=static={libname}");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
 
-    // libstdc++ must be linked to this project to make the static library of capsimage work
-    println!("cargo:rustc-link-lib=stdc++");
-
+    if !windows_target {
+        // libstdc++ must be linked to this project to make the static library of capsimage work
+        println!("cargo:rustc-link-lib=stdc++");
+    }
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for
     // the resulting bindings.

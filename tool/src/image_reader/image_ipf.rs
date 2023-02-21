@@ -121,7 +121,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                     auto_cell_size(trackbuf.len() as u32, DRIVE_3_5_RPM).min(168.0_f64);
 
                 let mut densitymap;
-                if trackInf.type_ == ctitVar {
+                if trackInf.type_ == ctitVar as u32 {
                     println!(
                         "Variable Density Track {cylinder} {head} - Auto cell size {auto_cell_size} "
                     );

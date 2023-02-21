@@ -49,7 +49,10 @@ pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {
     let pid = 0x27dd;
     let mut context = Context::new().unwrap();
 
-    let (device, _device_desc, handle) = open_usb_device(&mut context, vid, pid)?;
+    let (device, _device_desc, mut handle) = open_usb_device(&mut context, vid, pid)?;
+
+    // This seems to be optional for Linux but is required for Windows
+    handle.claim_interface(1).unwrap();
 
     let config_desc = device.config_descriptor(0).unwrap();
 

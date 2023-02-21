@@ -196,7 +196,7 @@ fn main() -> ! {
 
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Slamy")
-        .product("WuselDerpy")
+        .product("STM32-USBFloppyTracer")
         .device_class(0xff)
         .build();
 
