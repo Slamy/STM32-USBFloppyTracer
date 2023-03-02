@@ -5,6 +5,9 @@ use usb_device::Result;
 const USB_CLASS_VENDOR: u8 = 0xff;
 const SUBCLASS_NONE: u8 = 0x00;
 const PROTOCOL_NONE: u8 = 0x00;
+const WCID_VENDOR_CODE: u8 = 65; // ASCII 'A'
+const COMPATIBILITY_ID_DESCRIPTOR_INDEX: u16 = 4;
+const WCID_OS_STRING_DESC_INDEX: u8 = 0xEE;
 
 /// taken from usbd_serial::CdcAcmClass and stripped down to the minimum but still compatible
 
@@ -66,6 +69,30 @@ impl<B: UsbBus> UsbClass<B> for MinimalVendorClass<'_, B> {
     fn control_in(&mut self, xfer: ControlIn<B>) {
         let req = xfer.request();
 
+        if req.request_type == control::RequestType::Vendor
+            && req.recipient == control::Recipient::Device
+            && req.index == COMPATIBILITY_ID_DESCRIPTOR_INDEX
+            && req.request == WCID_VENDOR_CODE
+        {
+            // According to https://github.com/pbatard/libwdi/wiki/WCID-Devices
+            // Provide "Microsoft Compatible ID Feature Descriptor"
+            xfer.accept_with_static(&[
+                0x28, 0x00, 0x00, 0x00, //  Descriptor length (40 bytes)
+                0x00, 0x01, //  Version ('1.0')
+                0x04, 0x00, // Compatibility ID Descriptor index (0x0004)
+                0x01, // Number of sections (1)
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Reserved
+                0x00, // Interface Number (Interface #0)
+                0x01, // Reserved
+                0x57, 0x49, 0x4E, 0x55, 0x53, 0x42, 0x00,
+                0x00, // Compatible ID ("WINUSB\0\0")
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Sub-Compatible ID (unused)
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Reserved
+            ])
+            .unwrap();
+            return;
+        }
+
         if !(req.request_type == control::RequestType::Class
             && req.recipient == control::Recipient::Interface
             && req.index == u8::from(self.data_if) as u16)
@@ -95,5 +122,16 @@ impl<B: UsbBus> UsbClass<B> for MinimalVendorClass<'_, B> {
                 xfer.reject().ok();
             }
         };
+    }
+
+    fn get_string(&self, index: StringIndex, lang_id: u16) -> Option<&str> {
+        // According to https://github.com/pbatard/libwdi/wiki/WCID-Devices
+        // Provide "Microsoft OS String Descriptor"
+        if u8::from(index) == WCID_OS_STRING_DESC_INDEX {
+            return Some("MSFT100A"); // Vendor Code is 65
+        }
+
+        let _ = (index, lang_id);
+        None
     }
 }

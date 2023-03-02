@@ -78,3 +78,8 @@ https://computer-masters.de/laufwerksgroessen/
 
 Usage of rtthost to connect to my stlink:
 rtthost -c stm32f407VGTx
+
+https://github.com/pbatard/libwdi/wiki/WCID-Devices
+
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\usbflags

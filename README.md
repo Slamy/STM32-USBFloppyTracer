@@ -79,12 +79,6 @@ To build it, install CMake and a GNU Compiler toolchain.
 One option which I've tested is [LLVM-MinGW](https://www.mingw-w64.org/downloads/#llvm-mingw)
 For CMake just install it from the [website](https://cmake.org/download/).
 
-### USB Driver for Windows
-
-You might have to install [Zadig](https://zadig.akeo.ie/) to get the WinUSB drivers.
-The USB device might not be correctly detected without these.
-This step is not required under Linux.
-
 ### UDev Rules for linux
 
 Without additional udev rules, only the root user has access to the USB device.
