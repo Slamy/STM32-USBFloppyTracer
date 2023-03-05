@@ -12,7 +12,7 @@ pub mod index_sim;
 pub mod interrupts;
 pub mod track_raw;
 pub mod usb;
-pub mod usb_class;
+pub mod vendor_class;
 
 extern crate alloc;
 
@@ -34,10 +34,10 @@ use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
 use track_raw::{RawTrackHandler, WriteVerifyError, WriteVerifySuccess};
 use usb::UsbHandler;
-use usb::CURRENT_COMMAND;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
 use util::{USB_PID, USB_VID};
+use vendor_class::{Command, CURRENT_COMMAND};
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -49,7 +49,7 @@ use alloc_cortex_m::CortexMHeap;
 
 use crate::floppy_drive_unit::FloppyDriveUnit;
 use crate::floppy_stepper::FloppyStepperSignals;
-use crate::usb_class::MinimalVendorClass;
+use crate::vendor_class::FloppyTracerVendorClass;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -194,7 +194,7 @@ fn main() -> ! {
     let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, Box::new(out_write_gate));
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
-    let serial = MinimalVendorClass::new(usb_bus, 64);
+    let serial = FloppyTracerVendorClass::new(usb_bus, 64);
 
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(USB_VID, USB_PID))
         .manufacturer("Slamy")
@@ -243,7 +243,7 @@ fn main() -> ! {
 }
 
 fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) -> ! {
-    let mut next_command: Option<usb::Command> = None;
+    let mut next_command: Option<Command> = None;
 
     loop {
         usb_handler.handle();
@@ -253,7 +253,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
         });
 
         match next_command.take() {
-            Some(usb::Command::ReadTrack {
+            Some(Command::ReadTrack {
                 track,
                 duration_to_record,
                 wait_for_index,
@@ -269,15 +269,15 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                 let result = cm.block_on();
                 if let Err(err) = result {
                     let str_response = format!("Fail {err:?}");
-                    usb_handler.response(&str_response);
+                    usb_handler.vendor_class.response(&str_response);
                 }
             }
-            Some(usb::Command::WriteVerifyRawTrack {
+            Some(Command::WriteVerifyRawTrack {
                 track,
                 raw_cell_data,
                 write_precompensation,
             }) => {
-                usb_handler.response("GotCmd");
+                usb_handler.vendor_class.response("GotCmd");
 
                 cortex_m::interrupt::free(|cs| {
                     interrupts::FLOPPY_CONTROL
@@ -330,7 +330,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                     ),
                 };
 
-                usb_handler.response(&str_response);
+                usb_handler.vendor_class.response(&str_response);
             }
             _ => {}
         }

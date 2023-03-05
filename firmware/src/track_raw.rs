@@ -391,7 +391,7 @@ impl RawTrackHandler {
                     if collect_buffer.len() == 64 {
                         let new_buffer: Vec<u8> = Vec::with_capacity(64);
                         let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
-                        usb_handler.write_consume(old_buffer);
+                        usb_handler.vendor_class.write_consume(old_buffer);
                         usb_frames_collected += 1;
 
                         if duration_yet_recorded >= duration_to_record {
@@ -415,7 +415,7 @@ impl RawTrackHandler {
         }
 
         // Send empty end package
-        usb_handler.write(&[0; 0]);
+        usb_handler.vendor_class.write(&[0; 0]);
         usb_handler.handle();
 
         rprintln!(
