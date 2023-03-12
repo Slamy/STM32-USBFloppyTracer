@@ -9,10 +9,9 @@ const WCID_VENDOR_CODE: u8 = 65; // ASCII 'A'
 const COMPATIBILITY_ID_DESCRIPTOR_INDEX: u16 = 4;
 const WCID_OS_STRING_DESC_INDEX: u8 = 0xEE;
 
-use core::{cell::RefCell, convert::TryInto};
+use core::convert::TryInto;
 
 use alloc::{collections::VecDeque, vec::Vec};
-use cortex_m::interrupt::Mutex;
 use usb_device::class_prelude::UsbBus;
 use util::{
     Cylinder, Density, DensityMap, DensityMapEntry, DriveSelectState, Head, PulseDuration,
@@ -33,8 +32,6 @@ pub enum Command {
         wait_for_index: bool,
     },
 }
-
-pub static CURRENT_COMMAND: Mutex<RefCell<Option<Command>>> = Mutex::new(RefCell::new(None));
 
 /// taken from usbd_serial::CdcAcmClass and stripped down to the minimum but still compatible
 
@@ -65,6 +62,7 @@ pub struct FloppyTracerVendorClass<'a, B: UsbBus> {
     has_non_flux_reversal_area: bool,
     write_precompensation: PulseDuration,
     tx_buffer: VecDeque<Vec<u8>>,
+    current_command: Option<Command>,
 }
 
 impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
@@ -84,9 +82,13 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
             has_non_flux_reversal_area: false,
             write_precompensation: PulseDuration(0),
             tx_buffer: VecDeque::new(),
+            current_command: None,
         }
     }
 
+    pub fn take_command(&mut self) -> Option<Command> {
+        self.current_command.take()
+    }
     /// Gets the maximum packet size in bytes.
     pub fn max_packet_size(&self) -> u16 {
         // The size is the same for both endpoints.
@@ -312,9 +314,7 @@ impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
                             wait_for_index,
                         };
 
-                        let old_command = cortex_m::interrupt::free(|cs| {
-                            CURRENT_COMMAND.borrow(cs).borrow_mut().replace(new_command)
-                        });
+                        let old_command = self.current_command.replace(new_command);
 
                         // Last command shall be not existing.
                         // If it exists, it was dropped now, which is not good
@@ -353,9 +353,7 @@ impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
                         write_precompensation: self.write_precompensation,
                     };
 
-                    let old_command = cortex_m::interrupt::free(|cs| {
-                        CURRENT_COMMAND.borrow(cs).borrow_mut().replace(new_command)
-                    });
+                    let old_command = self.current_command.replace(new_command);
 
                     // Last command shall be not existing.
                     // If it exists, it was dropped now, which is not good

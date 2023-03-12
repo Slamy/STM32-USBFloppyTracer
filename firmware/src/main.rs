@@ -37,7 +37,7 @@ use usb::UsbHandler;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
 use util::{USB_PID, USB_VID};
-use vendor_class::{Command, CURRENT_COMMAND};
+use vendor_class::Command;
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -243,14 +243,11 @@ fn main() -> ! {
 }
 
 fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) -> ! {
-    let mut next_command: Option<Command> = None;
+    let mut next_command: Option<Command>;
 
     loop {
         usb_handler.handle();
-
-        cortex_m::interrupt::free(|cs| {
-            next_command = CURRENT_COMMAND.borrow(cs).borrow_mut().take();
-        });
+        next_command = usb_handler.vendor_class.take_command();
 
         match next_command.take() {
             Some(Command::ReadTrack {
