@@ -24,6 +24,11 @@ where
 const ISO_SYNC_WORD: u16 = 0x4489;
 pub const ISO_SYNC_BYTE: u8 = 0xA1;
 
+pub const ISO_IAM: u8 = 0xfc; // first address mark after index hole. not required though
+pub const ISO_IDAM: u8 = 0xfe; // sector header address mark
+pub const ISO_DAM: u8 = 0xfb; // data address mark
+pub const ISO_DDAM: u8 = 0xf8; // deleted data address mark
+
 /*
  Iso Sync Word 0x4489
  Data  1 0 1 0 0 0 0 1   0xA1

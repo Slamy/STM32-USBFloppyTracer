@@ -2,16 +2,12 @@ use anyhow::ensure;
 use util::{
     duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
-    mfm::{MfmDecoder, MfmWord, ISO_SYNC_BYTE},
+    mfm::{MfmDecoder, MfmWord, ISO_DAM, ISO_IDAM, ISO_SYNC_BYTE},
     Density, DiskType, PulseDuration, DRIVE_3_5_RPM, DRIVE_5_25_RPM, DRIVE_SLOWEST_RPM,
     PULSE_REDUCE_SHIFT,
 };
 
-use crate::{
-    image_reader::image_iso::{ISO_DAM, ISO_IDAM},
-    rawtrack::TrackFilter,
-    track_parser::concatenate_sectors,
-};
+use crate::{rawtrack::TrackFilter, track_parser::concatenate_sectors};
 
 use super::{CollectedSector, TrackParser, TrackPayload};
 

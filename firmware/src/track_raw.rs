@@ -1,21 +1,19 @@
 use core::{cell::RefCell, cmp::max, future::Future, mem, task::Poll};
 
-use alloc::{collections::VecDeque, vec::Vec};
+use alloc::collections::VecDeque;
 use cassette::futures::poll_fn;
 use heapless::spsc::{Consumer, Producer};
 
 use util::{
-    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, PulseDuration, RawCellData,
-    Track, PULSE_REDUCE_SHIFT,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, PulseDuration, RawCellData, Track,
 };
 
 use crate::{
     interrupts::{
         self, async_select_and_wait_for_track, async_wait_for_receive, async_wait_for_transmit,
-        flux_reader_stop_reception, FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
+        flux_reader_stop_reception, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
     },
     rprintln,
-    usb::UsbHandler,
 };
 
 pub struct RawTrackHandler {
@@ -306,128 +304,6 @@ impl RawTrackHandler {
         write_prod_fpg.flush();
 
         Ok(track_data_to_write)
-    }
-
-    pub async fn read_track(
-        &mut self,
-        track: Track,
-        duration_to_record: u32,
-        wait_for_index: bool,
-        usb_handler: &mut UsbHandler<'_>,
-    ) -> Result<(), RawTrackError> {
-        // keep the motor spinning
-        cortex_m::interrupt::free(|cs| {
-            interrupts::FLOPPY_CONTROL
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .spin_motor();
-        });
-
-        while self.read_cons.dequeue().is_some() {}
-
-        async_select_and_wait_for_track(track).await;
-
-        if wait_for_index {
-            // Throw away all data in the queue before we read real data
-            while self.read_cons.dequeue().is_some() {}
-
-            // start reception of track on next index pulse
-            cortex_m::interrupt::free(|cs| {
-                START_RECEIVE_ON_INDEX.borrow(cs).set(true);
-            });
-            if async_wait_for_receive().await.is_err() {
-                return Err(RawTrackError::NoIndexPulse);
-            };
-        } else {
-            cortex_m::interrupt::free(|cs| {
-                FLUX_READER
-                    .borrow(cs)
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .start_reception(cs);
-            });
-        }
-        let mut collect_buffer: Vec<u8> = Vec::with_capacity(64);
-        let mut usb_frames_collected = 0;
-
-        let mut timeout = 0;
-        let mut duration_yet_recorded = 0;
-        let mut required_duration_was_recorded = false;
-
-        // Throw away the first 2 pulses.
-        // For yet unknown reasons the first two are garbage.
-        // TODO Are they coming from the DMA?
-        if self.async_read_flux().await.is_none() {
-            flux_reader_stop_reception();
-            return Err(RawTrackError::NoIncomingData);
-        }
-        self.async_read_flux().await;
-
-        while !required_duration_was_recorded {
-            usb_handler.handle();
-            // Polling the USB buffers just takes too much time.
-            // We shall at least process 5 incoming pulses until we check
-            // USB again. With HD disks there is just not enough time.
-            for _ in 0..5 {
-                if let Some(pulse) = self.read_cons.dequeue() {
-                    timeout = 0;
-                    duration_yet_recorded += pulse;
-                    let mut reduced_pulse = pulse >> PULSE_REDUCE_SHIFT;
-
-                    if pulse & 0b100 != 0 {
-                        //round up
-                        reduced_pulse += 1;
-                    }
-
-                    if reduced_pulse > 0xff {
-                        reduced_pulse = 0xff;
-                    }
-
-                    collect_buffer.push(reduced_pulse as u8);
-
-                    if collect_buffer.len() == 64 {
-                        let new_buffer: Vec<u8> = Vec::with_capacity(64);
-                        let old_buffer = core::mem::replace(&mut collect_buffer, new_buffer);
-                        usb_handler.vendor_class.write_consume(old_buffer);
-                        usb_frames_collected += 1;
-
-                        if duration_yet_recorded >= duration_to_record {
-                            required_duration_was_recorded = true;
-                            flux_reader_stop_reception();
-                            // Throw away remaining data
-                            while self.read_cons.dequeue().is_some() {}
-                        }
-                    }
-                } else {
-                    timeout += 1;
-                    // TODO magic number
-                    if timeout == 0x0080_0000 {
-                        flux_reader_stop_reception();
-                        // Throw away remaining data
-                        while self.read_cons.dequeue().is_some() {}
-                        return Err(RawTrackError::NoIncomingData);
-                    }
-                }
-            }
-        }
-
-        // Send empty end package
-        usb_handler.vendor_class.write(&[0; 0]);
-        usb_handler.handle();
-
-        rprintln!(
-            "{} {} Collected {} {} blocks! {}",
-            track.cylinder.0,
-            track.head.0,
-            usb_frames_collected,
-            duration_yet_recorded,
-            duration_to_record
-        );
-
-        Ok(())
     }
 
     async fn verify_track(

@@ -1,6 +1,8 @@
 use util::bitstream::BitStreamCollector;
 use util::mfm::MfmEncoder;
 use util::mfm::MfmWord;
+use util::mfm::ISO_DAM;
+use util::mfm::ISO_IDAM;
 use util::mfm::ISO_SYNC_BYTE;
 use util::Bit;
 use util::Density;
@@ -16,11 +18,6 @@ use crate::rawtrack::RawTrack;
 // Information sources:
 // https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
 // http://info-coach.fr/atari/software/FD-Soft.php
-
-pub const ISO_IAM: u8 = 0xfc; // first address mark after index hole. not required though
-pub const ISO_IDAM: u8 = 0xfe; // sector header address mark
-pub const ISO_DAM: u8 = 0xfb; // data address mark
-pub const ISO_DDAM: u8 = 0xf8; // deleted data address mark
 
 const HEADS: usize = 2;
 const BYTES_PER_SECTOR: usize = 512;

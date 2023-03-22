@@ -2,14 +2,13 @@ use super::image_iso::{
     generate_iso_data_header, generate_iso_data_with_broken_crc, generate_iso_data_with_crc,
     generate_iso_gap, generate_iso_sectorheader,
 };
-use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 use crate::rawtrack::{RawImage, RawTrack};
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Cursor;
 use std::io::Read;
 use util::bitstream::BitStreamCollector;
-use util::mfm::{MfmEncoder, MfmWord, ISO_SYNC_BYTE};
+use util::mfm::{MfmEncoder, MfmWord, ISO_DAM, ISO_IDAM, ISO_SYNC_BYTE};
 use util::{
     reduce_densitymap, Bit, Density, DensityMap, DensityMapEntry, PulseDuration, STM_TIMER_HZ,
 };

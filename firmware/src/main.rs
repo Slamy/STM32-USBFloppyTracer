@@ -10,15 +10,13 @@ pub mod flux_reader;
 pub mod flux_writer;
 pub mod index_sim;
 pub mod interrupts;
+pub mod iso_blockdevice;
+pub mod scsi_class;
 pub mod track_raw;
 pub mod usb;
 pub mod vendor_class;
-
 extern crate alloc;
-
 use alloc::boxed::Box;
-use alloc::format;
-use cassette::Cassette;
 use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
@@ -28,16 +26,16 @@ use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
 use index_sim::IndexSim;
 use rtt_target::{rprintln, rtt_init_print};
+
 use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, Pull, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
 use stm32f4xx_hal::pac::Interrupt;
 use stm32f4xx_hal::{pac, prelude::*};
-use track_raw::{RawTrackHandler, WriteVerifyError, WriteVerifySuccess};
+
 use usb::UsbHandler;
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::*;
 use util::{USB_PID, USB_VID};
-use vendor_class::{Command, CURRENT_COMMAND};
 
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
@@ -49,7 +47,8 @@ use alloc_cortex_m::CortexMHeap;
 
 use crate::floppy_drive_unit::FloppyDriveUnit;
 use crate::floppy_stepper::FloppyStepperSignals;
-use crate::vendor_class::FloppyTracerVendorClass;
+use crate::iso_blockdevice::IsoBlockDevice;
+use crate::scsi_class::MscClass;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -70,11 +69,12 @@ fn main() -> ! {
 
     {
         use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 13509 * 8;
+        const HEAP_SIZE: usize = 512 * 232;
         static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
         unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
     }
 
+    //rtt_init_print!(BlockIfFull, 2000);
     rtt_init_print!();
 
     let mut dp = pac::Peripherals::take().unwrap();
@@ -149,7 +149,7 @@ fn main() -> ! {
         Box::new(in_track_00),
     );
 
-    let floppy_control = FloppyControl::new(
+    let mut floppy_control = FloppyControl::new(
         drive_a,
         drive_b,
         stepper,
@@ -157,6 +157,8 @@ fn main() -> ! {
         Box::new(out_density_select),
         Box::new(in_write_protect),
     );
+
+    floppy_control.select_drive(util::DriveSelectState::A);
 
     let usb = USB {
         usb_global: dp.OTG_FS_GLOBAL,
@@ -194,15 +196,18 @@ fn main() -> ! {
     let flux_writer = FluxWriter::new(dp.TIM4, dma1_arc2, write_cons, Box::new(out_write_gate));
     let flux_reader = FluxReader::new(dp.TIM2, dma1_arc1, read_prod);
 
-    let serial = FloppyTracerVendorClass::new(usb_bus, 64);
+    //let vendor_class = FloppyTracerVendorClass::new(usb_bus, 64);
+    let iso_block_device = IsoBlockDevice::new(read_cons, RefCell::new(write_prod));
+
+    let scsi_class = MscClass::new(usb_bus, 64, Box::new(iso_block_device));
 
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(USB_VID, USB_PID))
         .manufacturer("Slamy")
         .product("STM32-USBFloppyTracer")
-        .device_class(0xff)
+        .device_class(0)
         .build();
 
-    let usb_handler = UsbHandler::new(serial, usb_device);
+    let usb_handler = UsbHandler::new(scsi_class, usb_device);
 
     cortex_m::interrupt::free(|cs| {
         DEBUG_LED_GREEN
@@ -233,106 +238,22 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(Interrupt::DMA1_STREAM1); // flux reading
         cortex_m::peripheral::NVIC::unmask(in_index_int);
     }
-
-    let raw_track_writer = track_raw::RawTrackHandler {
-        read_cons,
-        write_prod_cell: RefCell::new(write_prod),
-    };
-
-    mainloop(usb_handler, raw_track_writer);
-}
-
-fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) -> ! {
-    let mut next_command: Option<Command> = None;
+    /*
+    let x = iso_block_device.read_block(0);
+    let mut async_process: Cassette<core::pin::Pin<Box<dyn Future<Output = Option<Vec<u8>>>>>> =
+        Cassette::new(x);
 
     loop {
+        orange(true);
+        async_process.poll_on();
+        orange(false);
+    }
+    */
+    mainloop(usb_handler);
+}
+
+fn mainloop(mut usb_handler: UsbHandler) -> ! {
+    loop {
         usb_handler.handle();
-
-        cortex_m::interrupt::free(|cs| {
-            next_command = CURRENT_COMMAND.borrow(cs).borrow_mut().take();
-        });
-
-        match next_command.take() {
-            Some(Command::ReadTrack {
-                track,
-                duration_to_record,
-                wait_for_index,
-            }) => {
-                let write_verify_fut = Box::pin(raw_track_writer.read_track(
-                    track,
-                    duration_to_record,
-                    wait_for_index,
-                    &mut usb_handler,
-                ));
-                let cm = Cassette::new(write_verify_fut);
-
-                let result = cm.block_on();
-                if let Err(err) = result {
-                    let str_response = format!("Fail {err:?}");
-                    usb_handler.vendor_class.response(&str_response);
-                }
-            }
-            Some(Command::WriteVerifyRawTrack {
-                track,
-                raw_cell_data,
-                write_precompensation,
-            }) => {
-                usb_handler.vendor_class.response("GotCmd");
-
-                cortex_m::interrupt::free(|cs| {
-                    interrupts::FLOPPY_CONTROL
-                        .borrow(cs)
-                        .borrow_mut()
-                        .as_mut()
-                        .unwrap()
-                        .spin_motor();
-                });
-
-                let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
-                    track,
-                    write_precompensation,
-                    raw_cell_data,
-                ));
-                let mut cm = Cassette::new(write_verify_fut);
-
-                let result = loop {
-                    usb_handler.handle();
-
-                    if let Some(result) = cm.poll_on() {
-                        break result;
-                    }
-                };
-
-                let str_response = match result {
-                    Ok(WriteVerifySuccess {
-                        write_operations,
-                        verify_operations,
-                        max_err,
-                        write_precompensation,
-                    }) => {
-                        format!(
-                            "WrittenAndVerified {} {} {} {} {} {}",
-                            track.cylinder.0,
-                            track.head.0,
-                            write_operations,
-                            verify_operations,
-                            max_err.0,
-                            write_precompensation.0
-                        )
-                    }
-                    Err(WriteVerifyError {
-                        write_operations,
-                        verify_operations,
-                        error,
-                    }) => format!(
-                        "Fail {} {} {} {} {:?}",
-                        track.cylinder.0, track.head.0, write_operations, verify_operations, error
-                    ),
-                };
-
-                usb_handler.vendor_class.response(&str_response);
-            }
-            _ => {}
-        }
     }
 }

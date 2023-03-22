@@ -4,11 +4,9 @@ use std::{cell::RefCell, collections::VecDeque};
 use util::{
     bitstream::to_bit_stream,
     fluxpulse::FluxPulseGenerator,
-    mfm::{MfmDecoder, MfmWord, ISO_SYNC_BYTE},
+    mfm::{MfmDecoder, MfmWord, ISO_DAM, ISO_IDAM, ISO_SYNC_BYTE},
     Bit, Density, DensityMap, DiskType, Encoding, RawCellData, STM_TIMER_MHZ,
 };
-
-use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 
 pub struct RawImage {
     pub density: Density,

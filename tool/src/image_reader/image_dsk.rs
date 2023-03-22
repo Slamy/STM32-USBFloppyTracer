@@ -7,12 +7,12 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use util::bitstream::BitStreamCollector;
-use util::mfm::MfmEncoder;
+use util::mfm::{MfmEncoder, ISO_DDAM};
 use util::{Density, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
 
 use crate::image_reader::image_iso::{
     generate_iso_data_header, generate_iso_data_with_crc, generate_iso_gap,
-    generate_iso_sectorheader, IsoGeometry, ISO_DDAM,
+    generate_iso_sectorheader, IsoGeometry,
 };
 use crate::rawtrack::{auto_cell_size, RawImage, RawTrack};
 
