@@ -204,7 +204,7 @@ fn main() -> ! {
     let usb_device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(USB_VID, USB_PID))
         .manufacturer("Slamy")
         .product("STM32-USBFloppyTracer")
-        .device_class(0)
+        .device_class(0x08)
         .build();
 
     let usb_handler = UsbHandler::new(scsi_class, usb_device);

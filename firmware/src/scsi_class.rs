@@ -248,9 +248,6 @@ impl<'a, B: UsbBus> MscScsiProcess<'a, B> {
                         }
                     }
 
-                    // send empty package
-                    self.write_bulk(&[]).await;
-
                     core::result::Result::Ok(0)
                 } else {
                     core::result::Result::Err(())
@@ -319,6 +316,20 @@ impl<'a, B: UsbBus> MscScsiProcess<'a, B> {
                 }
             }
             OpCode::PreventAllowMediumRemoval => core::result::Result::Err(()),
+            OpCode::ReadFormatCapacities => {
+
+                let buf: [u8; 12] = [
+                    0,0,0, // Reserved
+                    0x08, // Capacity List Length
+                    0x00,0x00,0x0B,0x40, // Number of Blocks. TODO fixed at 2880
+                    0x02, // Descriptor Type: Formatted media
+                    0x00,0x02,0x00, // Single Block is 512 byte in size
+                    ];
+                    self.write_bulk(&buf).await;
+                    core::result::Result::Ok(0)
+
+            },
+            
             _ => {
                 todo!("{:?} ignored", opcode);
             }
