@@ -1,6 +1,6 @@
 
 [package]
-name = "usbfloppytracer-gui"
+name = "usbfloppytracer"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,5 +14,7 @@ fltk-theme = "0.6.0"
 tool = { path = "../tool" }
 util = { path = "../util" }
 rusb = "0.9.1"
-debugless-unwrap = "0.0.4"
+clap = { version = "4.0.27", features = ["derive"] }
+pretty-hex = "0.3.0"
+md5 = "0.7.0"
 anyhow = "1.0.70"

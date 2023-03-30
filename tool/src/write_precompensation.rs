@@ -8,8 +8,10 @@ use std::{
 use rusb::{Context, DeviceHandle};
 use util::Density;
 
-use crate::RawImage;
-use crate::{rawtrack::RawTrack, write_raw_track};
+use crate::{
+    rawtrack::{RawImage, RawTrack},
+    usb_commands::write_raw_track,
+};
 
 pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: RawImage) {
     println!("tracks len {}", image.tracks.len());

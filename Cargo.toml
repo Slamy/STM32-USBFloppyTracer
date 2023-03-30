@@ -3,6 +3,7 @@ members = [
   "util",
   "tool",
   "gui",
+  "cli",
 ]
 
 # Reduce the binary from 5.3M to 827K
