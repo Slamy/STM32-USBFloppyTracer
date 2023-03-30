@@ -126,7 +126,7 @@ fn main() {
         }
     });
 
-    let button_discover = Button::default().with_size(0, 30).with_label("Discover");
+    let mut button_discover = Button::default().with_size(0, 30).with_label("Discover");
     let mut button_write = Button::default()
         .with_size(0, 30)
         .with_label("Write to Disk");
@@ -225,6 +225,11 @@ fn main() {
                 if image.is_some() {
                     button_write.activate();
                 }
+                button_read.activate();
+                button_load.activate();
+                button_discover.activate();
+
+                button_stop.deactivate();
             }
 
             Some(Message::Stop) => {
@@ -246,9 +251,13 @@ fn main() {
                     0,
                 );
                 let sender = sender.clone();
-                button_write.deactivate();
+
                 button_stop.activate();
+
+                button_write.deactivate();
                 button_read.deactivate();
+                button_load.deactivate();
+                button_discover.deactivate();
 
                 atomic_stop.store(false, Relaxed);
                 let atomic_stop = atomic_stop.clone();
@@ -359,8 +368,7 @@ fn write_and_verify_image(
 
                         if let Some(last_written_track) = last_written_track && atomic_stop.load(Relaxed) == true && last_written_track.cylinder == track.cylinder && last_written_track.head == track.head{
                             println!("Stopped!");
-                        return Ok(());
-                            
+                            return Ok(());
                         }
                     }
                     expected_to_verify = verify_iterator.next();
@@ -384,7 +392,6 @@ fn write_and_verify_image(
                     error,
                 ),
                 tool::usb_commands::UsbAnswer::GotCmd => {
-                    println!("Got cmd");
                     break;
                 }
                 tool::usb_commands::UsbAnswer::WriteProtected => bail!("Disk is write protected!"),

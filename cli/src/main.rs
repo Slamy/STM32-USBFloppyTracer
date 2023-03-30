@@ -112,7 +112,6 @@ fn write_and_verify_image(
                     error,
                 ),
                 tool::usb_commands::UsbAnswer::GotCmd => {
-                    println!("Got cmd");
                     break;
                 }
                 tool::usb_commands::UsbAnswer::WriteProtected => bail!("Disk is write protected!"),
