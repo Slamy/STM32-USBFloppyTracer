@@ -1,4 +1,4 @@
-use std::{slice::Iter, time::Duration};
+use std::time::Duration;
 
 use rusb::{Context, DeviceHandle};
 use util::{Density, DriveSelectState};

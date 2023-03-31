@@ -186,7 +186,7 @@ fn main() {
 
         // before the make contact to the USB device, we shall read the image first
         // to be sure that it is writeable.
-        let mut image = parse_image(&cli.filepath);
+        let mut image = parse_image(&cli.filepath).unwrap();
         let rpm = match image.disk_type {
             util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
             util::DiskType::Inch5_25 => DRIVE_5_25_RPM,

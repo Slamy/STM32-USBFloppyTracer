@@ -1,4 +1,5 @@
-use std::{ffi::OsStr, path::Path};
+use anyhow::{bail, ensure, Context};
+use std::{any, ffi::OsStr, path::Path};
 
 use crate::rawtrack::RawImage;
 
@@ -16,13 +17,17 @@ pub mod image_ipf;
 pub mod image_iso;
 pub mod image_stx;
 
-pub fn parse_image(path: &str) -> RawImage {
-    let extension = Path::new(path)
+pub fn parse_image(path: &str) -> anyhow::Result<RawImage> {
+    let path2 = Path::new(path);
+
+    ensure!(path2.exists(), "File doesn't exist!");
+
+    let extension = path2
         .extension()
         .and_then(OsStr::to_str)
-        .expect("Unknown file extension!");
+        .context("Unknown file extension!")?;
 
-    match extension {
+    let image = match extension {
         "ipf" => parse_ipf_image(path),
         "adf" => parse_adf_image(path),
         "d64" => parse_d64_image(path),
@@ -31,8 +36,10 @@ pub fn parse_image(path: &str) -> RawImage {
         "img" => parse_iso_image(path),
         "stx" => parse_stx_image(path),
         "dsk" => parse_dsk_image(path),
-        _ => panic!("{} is an unknown file extension!", extension),
-    }
+        _ => bail!("{} is an unknown file extension!", extension),
+    };
+
+    Ok(image)
 }
 
 #[cfg(test)]
@@ -131,7 +138,7 @@ mod tests {
             "MD5 Sum of file not as expected."
         );
 
-        let mut image = parse_image(filepath);
+        let mut image = parse_image(filepath).unwrap();
 
         let mut context = md5::Context::new();
 

@@ -1,39 +1,30 @@
 #![feature(let_chains)]
 
-use core::time;
 use std::{
-    os::unix::thread::JoinHandleExt,
     process::exit,
-    rc::Rc,
     sync::{atomic::AtomicBool, Arc},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use anyhow::{bail, ensure};
 use debugless_unwrap::DebuglessUnwrap;
 use fltk::{
-    app::{self, channel, set_callback, Scheme, Sender},
+    app::{self, channel, Sender},
     button::*,
     frame::Frame,
-    group::{Flex, Group, Pack, Tabs},
-    input::Input,
-    menu::{Choice, MenuButton},
+    group::{Pack, PackType},
     output::Output,
-    prelude::{GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
+    prelude::{GroupExt, WidgetBase, WidgetExt, WindowExt},
     window::Window,
 };
-use fltk_table::{SmartTable, TableOpts};
-use fltk_theme::{widget_themes, ThemeType, WidgetTheme};
-use fltk_theme::{SchemeType, WidgetScheme};
 
 use fltk::{enums::*, prelude::*, *};
 use fltk_grid::Grid;
-use fltk_theme::colors::aqua::dark::*;
-use fltk_theme::widget_schemes::aqua::frames::*; // get all the dark aqua colors
+
+// get all the dark aqua colors
 use rusb::{Context, DeviceHandle};
 use std::sync::atomic::Ordering::Relaxed;
-use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
+use util::DriveSelectState;
 
 use tool::{
     image_reader::parse_image,
@@ -50,14 +41,15 @@ struct Tools {
 enum Message {
     VerifiedTrack { cylinder: u32, head: u32 },
     FailedOnTrack { cylinder: u32, head: u32 },
-    Tick,
     LoadFile(String),
     StartWrite,
     Stop,
+    Discover,
     ToolsReturned(Arc<Tools>),
+    StatusMessage(String),
 }
 
-use fltk::{enums::Event, prelude::*, *};
+use fltk::enums::Event;
 
 fn generate_track_table() -> Vec<Frame> {
     let mut track_labels = Vec::new();
@@ -103,7 +95,7 @@ fn main() {
 
     let mut wind = Window::default()
         .with_size(900, 450)
-        .with_label("Tabs")
+        .with_label("USB Floppy Tracer")
         .center_screen();
 
     let mut pack = Pack::new(15, 15, 150, 450 - 45, None);
@@ -117,16 +109,19 @@ fn main() {
 
     button_load.set_callback({
         let sender = sender.clone();
-        move |f| {
+        move |_| {
             let mut nfc = dialog::NativeFileChooser::new(dialog::NativeFileChooserType::BrowseFile);
             nfc.show();
             let path = nfc.filename();
-            //println!("File {:?}", nfc.filename());
-            sender.send(Message::LoadFile(path.to_str().unwrap().to_owned()));
+            if path.exists() {
+                sender.send(Message::LoadFile(path.to_str().unwrap().to_owned()));
+            }
         }
     });
 
     let mut button_discover = Button::default().with_size(0, 30).with_label("Discover");
+    button_discover.emit(sender.clone(), Message::Discover);
+
     let mut button_write = Button::default()
         .with_size(0, 30)
         .with_label("Write to Disk");
@@ -141,6 +136,20 @@ fn main() {
     button_stop.deactivate();
 
     button_stop.emit(sender.clone(), Message::Stop);
+
+    let pack2 = Pack::default()
+        .with_type(PackType::Horizontal)
+        .with_size(150, 30);
+    //pack2.set_type(PackType::Vertical);
+    //pack2.set_spacing(9);
+    let mut radio_drive_a = RadioLightButton::default()
+        .with_label("Drive A")
+        .with_size(150 / 2, 30);
+    let _radio_drive_b = RadioLightButton::default()
+        .with_label("Drive B")
+        .with_size(150 / 2, 30);
+    radio_drive_a.set(true);
+    pack2.end();
 
     pack.end();
 
@@ -210,19 +219,26 @@ fn main() {
 
     wind.show();
 
-    let mut image: Option<RawImage> = None;
+    let mut maybe_image: Option<RawImage> = None;
     let mut thread_handle: Option<JoinHandle<_>> = None;
     let mut usb_handle = Some(usb_handles);
 
     //app.run().unwrap();
     while app.wait() {
+        let selected_drive = if radio_drive_a.is_set() {
+            DriveSelectState::A
+        } else {
+            DriveSelectState::B
+        };
+
         match receiver.recv() {
+            Some(Message::StatusMessage(text)) => status_text.set_value(&text),
             Some(Message::ToolsReturned(tools)) => {
                 let tools = Arc::try_unwrap(tools).debugless_unwrap();
-                image = Some(tools.image);
+                maybe_image = Some(tools.image);
                 usb_handle = Some(tools.usb_handles);
 
-                if image.is_some() {
+                if maybe_image.is_some() {
                     button_write.activate();
                 }
                 button_read.activate();
@@ -236,20 +252,18 @@ fn main() {
                 atomic_stop.store(true, Relaxed);
                 button_stop.deactivate();
             }
+            Some(Message::Discover) => {
+                status_text.set_value("TODO");
+            }
             Some(Message::StartWrite) => {
-                let taken_image = image.take().unwrap();
+                let taken_image = maybe_image.take().unwrap();
                 let taken_usb_handle = usb_handle.take().unwrap();
 
                 // it might be sometimes possible during an abort, that the endpoint
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
-                configure_device(
-                    &taken_usb_handle,
-                    DriveSelectState::A,
-                    taken_image.density,
-                    0,
-                );
+                configure_device(&taken_usb_handle, selected_drive, taken_image.density, 0);
                 let sender = sender.clone();
 
                 button_stop.activate();
@@ -263,7 +277,7 @@ fn main() {
                 let atomic_stop = atomic_stop.clone();
 
                 if let Some(handle) = thread_handle.take() {
-                    let _ = handle.join().unwrap();
+                    handle.join().unwrap();
                 }
 
                 for cell in track_labels_side0.iter_mut() {
@@ -276,13 +290,22 @@ fn main() {
                     cell.redraw();
                 }
 
+                status_text.set_value("Writing...");
+
                 thread_handle = Some(thread::spawn(move || {
-                    write_and_verify_image(
+                    let result = write_and_verify_image(
                         &taken_usb_handle,
                         &taken_image,
                         sender.clone(),
                         atomic_stop,
                     );
+
+                    let status_string = match result {
+                        Ok(()) => "Image written!".into(),
+                        Err(x) => x.to_string(),
+                    };
+
+                    sender.send(Message::StatusMessage(status_string));
 
                     sender.send(Message::ToolsReturned(Arc::new(Tools {
                         usb_handles: taken_usb_handle,
@@ -290,12 +313,14 @@ fn main() {
                     })));
                 }));
             }
-            Some(Message::LoadFile(filepath)) => {
-                image = Some(parse_image(&filepath));
-                loaded_image_path.set_value(&filepath);
-                button_write.activate();
-            }
-            Some(Message::Tick) => {}
+            Some(Message::LoadFile(filepath)) => match parse_image(&filepath) {
+                Ok(i) => {
+                    maybe_image = Some(i);
+                    loaded_image_path.set_value(&filepath);
+                    button_write.activate();
+                }
+                Err(s) => status_text.set_value(&s.to_string()),
+            },
             Some(Message::FailedOnTrack { cylinder, head }) => {
                 let cell = if head == 1 {
                     &mut track_labels_side1
@@ -341,7 +366,7 @@ fn write_and_verify_image(
 
     let mut last_written_track = None;
     loop {
-        if atomic_stop.load(Relaxed) == false {
+        if !atomic_stop.load(Relaxed) {
             if let Some(write_track) = write_iterator.next() {
                 write_raw_track(usb_handles, write_track);
                 last_written_track = Some(write_track);
@@ -355,10 +380,10 @@ fn write_and_verify_image(
                 tool::usb_commands::UsbAnswer::WrittenAndVerified {
                     cylinder,
                     head,
-                    writes,
-                    reads,
-                    max_err,
-                    write_precomp,
+                    writes: _,
+                    reads: _,
+                    max_err: _,
+                    write_precomp: _,
                 } => {
                     sender.send(Message::VerifiedTrack { cylinder, head });
 
@@ -366,9 +391,8 @@ fn write_and_verify_image(
                         ensure!(track.cylinder == cylinder);
                         ensure!(track.head == head);
 
-                        if let Some(last_written_track) = last_written_track && atomic_stop.load(Relaxed) == true && last_written_track.cylinder == track.cylinder && last_written_track.head == track.head{
-                            println!("Stopped!");
-                            return Ok(());
+                        if let Some(last_written_track) = last_written_track && atomic_stop.load(Relaxed) && last_written_track.cylinder == track.cylinder && last_written_track.head == track.head{
+                            bail!("Stopped before finishing the operation");
                         }
                     }
                     expected_to_verify = verify_iterator.next();
@@ -383,14 +407,18 @@ fn write_and_verify_image(
                     writes,
                     reads,
                     error,
-                } => bail!(
-                    "Failed writing track {} head {} - num_writes:{}, num_reads:{} error:{}",
-                    cylinder,
-                    head,
-                    writes,
-                    reads,
-                    error,
-                ),
+                } => {
+                    sender.send(Message::FailedOnTrack { cylinder, head });
+
+                    bail!(
+                        "Failed writing track {} head {} - num_writes:{}, num_reads:{} error:{}",
+                        cylinder,
+                        head,
+                        writes,
+                        reads,
+                        error,
+                    )
+                }
                 tool::usb_commands::UsbAnswer::GotCmd => {
                     break;
                 }
