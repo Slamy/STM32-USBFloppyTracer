@@ -1,5 +1,5 @@
 use anyhow::{bail, ensure, Context};
-use std::{any, ffi::OsStr, path::Path};
+use std::{ffi::OsStr, path::Path};
 
 use crate::rawtrack::RawImage;
 
@@ -28,7 +28,7 @@ pub fn parse_image(path: &str) -> anyhow::Result<RawImage> {
         .context("Unknown file extension!")?;
 
     let image = match extension {
-        "ipf" => parse_ipf_image(path),
+        "ipf" => parse_ipf_image(path)?,
         "adf" => parse_adf_image(path),
         "d64" => parse_d64_image(path),
         "g64" => parse_g64_image(path),
