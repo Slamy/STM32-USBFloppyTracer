@@ -56,33 +56,44 @@ use fltk::enums::Event;
 fn generate_track_table() -> Vec<Frame> {
     let mut track_labels = Vec::new();
 
-    let mut grid = Grid::default_fill();
-    //app::set_frame_color(Color::from_rgb(255, 0, 0));
+    let pack = Pack::default()
+        .with_type(PackType::Horizontal)
+        .with_size(0, 22);
 
-    grid.debug(false); // set to true to show cell outlines and numbers
-    grid.set_layout(10, 11); // 5 rows, 5 columns
-
-    for y in 0..9 {
-        let mut frame = Frame::default().with_label(&y.to_string());
-        frame.set_frame(FrameType::ThinDownFrame);
-        grid.insert(&mut frame, y + 1, 0); // widget, row, col
-    }
-
+    let mut frame = Frame::default().with_size(22, 22);
+    //frame.set_frame(FrameType::ThinDownFrame);
     for x in 0..10 {
-        let mut frame = Frame::default().with_label(&x.to_string());
+        let mut frame = Frame::default()
+            .with_label(&x.to_string())
+            .with_size(22, 22);
         frame.set_frame(FrameType::ThinDownFrame);
-        grid.insert(&mut frame, 0, x + 1); // widget, row, col
     }
 
-    for y in 0..9 {
+    pack.end();
+
+    /*
         for x in 0..10 {
-            let mut frame = Frame::default();
+            let mut frame = Frame::default().with_label(&x.to_string());
+            frame.set_frame(FrameType::ThinDownFrame);
+        }
+    */
+    for y in 0..9 {
+        let pack = Pack::default()
+            .with_type(PackType::Horizontal)
+            .with_size(22 * 11, 22);
+
+        let mut frame = Frame::default()
+            .with_label(&y.to_string())
+            .with_size(22, 22);
+        frame.set_frame(FrameType::ThinDownFrame);
+
+        for x in 0..10 {
+            let mut frame = Frame::default().with_size(22, 22);
             frame.set_frame(FrameType::ThinDownBox);
             frame.set_color(Color::from_rgb(0, 0, 0));
             track_labels.push(frame);
-
-            grid.insert(track_labels.last_mut().unwrap(), y + 1, x + 1); // widget, row, col
         }
+        pack.end();
     }
 
     track_labels
@@ -150,8 +161,6 @@ fn main() {
         .with_type(PackType::Horizontal)
         .with_size(150, 30);
 
-    //pack2.set_type(PackType::Vertical);
-    //pack2.set_spacing(9);
     let mut radio_drive_a = RadioLightButton::default()
         .with_label("Drive A")
         .with_size(150 / 2, 30);
@@ -161,12 +170,6 @@ fn main() {
     radio_drive_a.set(true);
     pack2.end();
 
-    let mut frame = Frame::default().with_size(10, 50);
-    frame.set_frame(FrameType::EmbossedBox);
-    frame.set_color(Color::from_rgb(0, 0,180));
-    frame.set_label_color(Color::from_rgb(0, 230, 0));
-    //app::set_background2_color(230, 0, 0);
-    //app::set_background_color(0, 250, 0);
     pack.end();
 
     let cellsize = 22;
@@ -186,7 +189,7 @@ fn main() {
         .with_label("Side 1");
     let mut track_labels_side1 = generate_track_table();
     side_1.end();
-    side_1.right_of(&side_0, 20);
+    side_1.right_of(&side_0, cellsize);
 
     let mut status_text = Output::default().with_size(500, 30).below_of(&side_0, 15);
 
