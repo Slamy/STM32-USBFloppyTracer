@@ -135,7 +135,7 @@ fn generate_track_table(sender: &Sender<Message>) -> Vec<Frame> {
             let mut frame = Frame::default().with_size(22, 22);
             frame.set_frame(FrameType::ThinDownBox);
             frame.set_color(Color::from_rgb(0, 0, 0));
-            frame.handle(custom_handle(&sender));
+            frame.handle(custom_handle(sender));
 
             track_labels.push(frame);
         }
@@ -212,7 +212,7 @@ fn main() {
     let mut radio_drive_a = RadioLightButton::default()
         .with_label("Drive A")
         .with_size(150 / 2, 30);
-    let _radio_drive_b = RadioLightButton::default()
+    let mut radio_drive_b = RadioLightButton::default()
         .with_label("Drive B")
         .with_size(150 / 2, 30);
     radio_drive_a.set(true);
@@ -271,6 +271,8 @@ fn main() {
                 button_read.activate();
                 button_load.activate();
                 button_discover.activate();
+                radio_drive_a.activate();
+                radio_drive_b.activate();
 
                 button_stop.deactivate();
             }
@@ -286,6 +288,8 @@ fn main() {
                 button_read.deactivate();
                 button_load.deactivate();
                 button_discover.deactivate();
+                radio_drive_a.deactivate();
+                radio_drive_b.deactivate();
 
                 let taken_usb_handle = usb_handle.take().unwrap();
                 let taken_image = maybe_image.take();
@@ -329,6 +333,8 @@ fn main() {
                 button_read.deactivate();
                 button_load.deactivate();
                 button_discover.deactivate();
+                radio_drive_a.deactivate();
+                radio_drive_b.deactivate();
 
                 atomic_stop.store(false, Relaxed);
                 let atomic_stop = atomic_stop.clone();
@@ -387,6 +393,8 @@ fn main() {
                 button_read.deactivate();
                 button_load.deactivate();
                 button_discover.deactivate();
+                radio_drive_a.deactivate();
+                radio_drive_b.deactivate();
 
                 atomic_stop.store(false, Relaxed);
                 let atomic_stop = atomic_stop.clone();
