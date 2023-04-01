@@ -145,6 +145,38 @@ fn generate_track_table(sender: &Sender<Message>) -> Vec<Frame> {
     track_labels
 }
 
+struct TrackLabels {
+    frames: [Vec<Frame>; 2],
+}
+
+impl TrackLabels {
+    fn all_black(&mut self) {
+        for cell in self.frames.iter_mut().flatten() {
+            cell.set_color(Color::from_rgb(0, 0, 0));
+            cell.redraw();
+        }
+    }
+
+    fn set_color(&mut self, cylinder: u32, head: u32, color: Color) {
+        let cell = &mut self.frames[head as usize][cylinder as usize];
+        cell.set_color(color);
+        cell.redraw();
+    }
+
+    fn black_if_existing(&mut self, image: &RawImage) {
+        for cell in self.frames.iter_mut().flatten() {
+            cell.set_color(Color::from_rgb(128, 128, 128));
+        }
+
+        for track in &image.tracks {
+            self.set_color(track.cylinder, track.head, Color::from_rgb(0, 0, 0));
+        }
+
+        for cell in self.frames.iter_mut().flatten() {
+            cell.redraw();
+        }
+    }
+}
 fn main() {
     // connect to USB
     let usb_handles = init_usb().unwrap_or_else(|| {
@@ -228,15 +260,20 @@ fn main() {
     let side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
         .right_of(&pack, 10)
         .below_of(&loaded_image_path, 25);
-    let mut track_labels_side0 = generate_track_table(&sender);
+    let track_labels_side0 = generate_track_table(&sender);
     side_0.end();
 
     let side_1 = Pack::default()
         .with_size(cellsize * 11, cellsize * 10)
         .with_label("Side 1");
-    let mut track_labels_side1 = generate_track_table(&sender);
+    let track_labels_side1 = generate_track_table(&sender);
+
     side_1.end();
     side_1.right_of(&side_0, cellsize);
+
+    let mut tracklabels = TrackLabels {
+        frames: [track_labels_side0, track_labels_side1],
+    };
 
     let mut status_text = Output::default().with_size(500, 30).below_of(&side_0, 15);
 
@@ -305,7 +342,11 @@ fn main() {
 
                     let status_string = match result {
                         Ok((_possible_parser, possible_formats)) => {
-                            format!("{:?}", possible_formats)
+                            if possible_formats.is_empty() {
+                                "No known format detected".into()
+                            } else {
+                                format!("{:?}", possible_formats)
+                            }
                         }
                         Err(x) => x.to_string(),
                     };
@@ -343,15 +384,7 @@ fn main() {
                     handle.join().unwrap();
                 }
 
-                for cell in track_labels_side0.iter_mut() {
-                    cell.set_color(Color::from_rgb(0, 0, 0));
-                    cell.redraw();
-                }
-
-                for cell in track_labels_side1.iter_mut() {
-                    cell.set_color(Color::from_rgb(0, 0, 0));
-                    cell.redraw();
-                }
+                tracklabels.all_black();
 
                 status_text.set_value("Reading...");
 
@@ -403,15 +436,7 @@ fn main() {
                     handle.join().unwrap();
                 }
 
-                for cell in track_labels_side0.iter_mut() {
-                    cell.set_color(Color::from_rgb(0, 0, 0));
-                    cell.redraw();
-                }
-
-                for cell in track_labels_side1.iter_mut() {
-                    cell.set_color(Color::from_rgb(0, 0, 0));
-                    cell.redraw();
-                }
+                tracklabels.black_if_existing(&taken_image);
 
                 status_text.set_value("Writing...");
 
@@ -438,6 +463,7 @@ fn main() {
             }
             Some(Message::LoadFile(filepath)) => match parse_image(&filepath) {
                 Ok(i) => {
+                    tracklabels.black_if_existing(&i);
                     maybe_image = Some(i);
                     loaded_image_path.set_value(&filepath);
                     button_write.activate();
@@ -445,30 +471,10 @@ fn main() {
                 Err(s) => status_text.set_value(&s.to_string()),
             },
             Some(Message::FailedOnTrack { cylinder, head }) => {
-                let cell = if head == 1 {
-                    &mut track_labels_side1
-                } else {
-                    &mut track_labels_side0
-                }
-                .get_mut(cylinder as usize)
-                .unwrap();
-
-                cell.set_color(Color::from_rgb(255, 0, 0));
-                //cell.set_label(&1.to_string());
-                cell.redraw();
+                tracklabels.set_color(cylinder, head, Color::from_rgb(255, 0, 0));
             }
             Some(Message::VerifiedTrack { cylinder, head }) => {
-                let cell = if head == 1 {
-                    &mut track_labels_side1
-                } else {
-                    &mut track_labels_side0
-                }
-                .get_mut(cylinder as usize)
-                .unwrap();
-
-                cell.set_color(Color::from_rgb(0, 255, 0));
-                //cell.set_label(&1.to_string());
-                cell.redraw();
+                tracklabels.set_color(cylinder, head, Color::from_rgb(0, 255, 0));
             }
 
             None => {}

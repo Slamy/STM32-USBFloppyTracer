@@ -1,4 +1,4 @@
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use util::{
     c64_geometry::{get_track_settings, TrackConfiguration},
     duration_of_rotation_as_stm_tim_raw,
@@ -107,8 +107,8 @@ impl TrackParser for C64TrackParser {
 
                         if sector_header.len() == 5 && checksum == 0 {
                             // Did we get this sector yet?
-
-                            let collected_sectors = self.collected_sectors.as_mut().unwrap();
+                            let collected_sectors =
+                                self.collected_sectors.as_mut().expect("Program flow error");
 
                             if !collected_sectors
                                 .iter()
@@ -119,7 +119,10 @@ impl TrackParser for C64TrackParser {
                             }
                             ensure!(sector_header[2] as u32 == self.expected_track_number.unwrap());
                         } else {
-                            println!("Checksum of sector {} header was wrong", sector_header[1]);
+                            println!(
+                                "Checksum of sector {} header was wrong",
+                                sector_header.get(1).unwrap_or(&0xff)
+                            );
                         }
                     }
 
