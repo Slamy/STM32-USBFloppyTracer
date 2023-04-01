@@ -13,6 +13,7 @@ use fltk::{
     button::*,
     frame::Frame,
     group::{Pack, PackType},
+    image::{JpegImage, TiledImage},
     output::Output,
     prelude::{GroupExt, WidgetBase, WidgetExt, WindowExt},
     window::Window,
@@ -29,13 +30,14 @@ use util::DriveSelectState;
 use tool::{
     image_reader::parse_image,
     rawtrack::RawImage,
+    track_parser::read_first_track_discover_format,
     usb_commands::{configure_device, wait_for_answer, write_raw_track},
     usb_device::{clear_buffers, init_usb},
 };
 
 struct Tools {
     usb_handles: (DeviceHandle<Context>, u8, u8),
-    image: RawImage,
+    image: Option<RawImage>,
 }
 #[derive(Clone)]
 enum Message {
@@ -55,6 +57,8 @@ fn generate_track_table() -> Vec<Frame> {
     let mut track_labels = Vec::new();
 
     let mut grid = Grid::default_fill();
+    //app::set_frame_color(Color::from_rgb(255, 0, 0));
+
     grid.debug(false); // set to true to show cell outlines and numbers
     grid.set_layout(10, 11); // 5 rows, 5 columns
 
@@ -98,6 +102,11 @@ fn main() {
         .with_label("USB Floppy Tracer")
         .center_screen();
 
+    let image = JpegImage::load("/home/andre/Downloads/lined-metal-background.jpg").unwrap();
+    let im2 = TiledImage::new(image, 0, 0);
+    let mut frame = Frame::default_fill();
+    frame.set_image(Some(im2));
+
     let mut pack = Pack::new(15, 15, 150, 450 - 45, None);
     pack.set_spacing(9);
 
@@ -140,6 +149,7 @@ fn main() {
     let pack2 = Pack::default()
         .with_type(PackType::Horizontal)
         .with_size(150, 30);
+
     //pack2.set_type(PackType::Vertical);
     //pack2.set_spacing(9);
     let mut radio_drive_a = RadioLightButton::default()
@@ -151,6 +161,12 @@ fn main() {
     radio_drive_a.set(true);
     pack2.end();
 
+    let mut frame = Frame::default().with_size(10, 50);
+    frame.set_frame(FrameType::EmbossedBox);
+    frame.set_color(Color::from_rgb(0, 0,180));
+    frame.set_label_color(Color::from_rgb(0, 230, 0));
+    //app::set_background2_color(230, 0, 0);
+    //app::set_background_color(0, 250, 0);
     pack.end();
 
     let cellsize = 22;
@@ -158,9 +174,10 @@ fn main() {
     let mut loaded_image_path = Output::default().with_size(500, 30).right_of(&pack, 15);
     loaded_image_path.set_value("No image loaded");
 
-    let side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
+    let mut side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
         .right_of(&pack, 10)
         .below_of(&loaded_image_path, 25);
+    //side_0.set_color(Color::from_rgb(0, 255, 0));
     let mut track_labels_side0 = generate_track_table();
     side_0.end();
 
@@ -231,11 +248,20 @@ fn main() {
             DriveSelectState::B
         };
 
+        /*
+        let thread_finished = thread_handle.as_ref().map_or(false, |f| f.is_finished());
+
+        if thread_finished {
+            let x = thread_handle.take().unwrap();
+            let y = x.join();
+            println!("Joined");
+        } */
+
         match receiver.recv() {
             Some(Message::StatusMessage(text)) => status_text.set_value(&text),
             Some(Message::ToolsReturned(tools)) => {
                 let tools = Arc::try_unwrap(tools).debugless_unwrap();
-                maybe_image = Some(tools.image);
+                maybe_image = tools.image;
                 usb_handle = Some(tools.usb_handles);
 
                 if maybe_image.is_some() {
@@ -253,7 +279,38 @@ fn main() {
                 button_stop.deactivate();
             }
             Some(Message::Discover) => {
-                status_text.set_value("TODO");
+                status_text.set_value("Checking...");
+
+                button_write.deactivate();
+                button_read.deactivate();
+                button_load.deactivate();
+                button_discover.deactivate();
+
+                let taken_usb_handle = usb_handle.take().unwrap();
+                let taken_image = maybe_image.take();
+                let sender = sender.clone();
+
+                // it might be sometimes possible during an abort, that the endpoint
+                // still contains data. Must be removed before proceeding
+                clear_buffers(&taken_usb_handle);
+
+                thread_handle = Some(thread::spawn(move || {
+                    let result =
+                        read_first_track_discover_format(&taken_usb_handle, selected_drive);
+
+                    let status_string = match result {
+                        Ok((_possible_parser, possible_formats)) => {
+                            format!("{:?}", possible_formats)
+                        }
+                        Err(x) => x.to_string(),
+                    };
+                    sender.send(Message::StatusMessage(status_string));
+
+                    sender.send(Message::ToolsReturned(Arc::new(Tools {
+                        usb_handles: taken_usb_handle,
+                        image: taken_image,
+                    })));
+                }));
             }
             Some(Message::StartWrite) => {
                 let taken_image = maybe_image.take().unwrap();
@@ -309,7 +366,7 @@ fn main() {
 
                     sender.send(Message::ToolsReturned(Arc::new(Tools {
                         usb_handles: taken_usb_handle,
-                        image: taken_image,
+                        image: Some(taken_image),
                     })));
                 }));
             }

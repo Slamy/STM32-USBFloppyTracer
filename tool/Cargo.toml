@@ -14,12 +14,12 @@ home = "0.5.4"
 md5 = "0.7.0"
 rusb = "0.9.1"
 util = { path = "../util" }
-rstest = "0.16.0"
+rstest = "0.17.0"
 anyhow = "1.0.68"
 chrono = "0.4.23"
 
 [build-dependencies]
-bindgen = "0.63.0"
+bindgen = "0.64.0"
 cmake = "0.1"
 
 [dev-dependencies]

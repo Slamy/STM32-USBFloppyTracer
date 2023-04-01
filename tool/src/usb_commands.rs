@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::bail;
 use rusb::{Context, DeviceHandle};
 use util::{Density, DriveSelectState};
 
@@ -55,7 +56,7 @@ pub fn read_raw_track(
     head: u32,
     wait_for_index: bool,
     duration_to_record: usize,
-) -> Vec<u8> {
+) -> anyhow::Result<Vec<u8>> {
     let (handle, endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
@@ -81,7 +82,7 @@ pub fn read_raw_track(
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
+        .expect("Bulk Transfer failed");
 
     let mut result = Vec::with_capacity(800 * 64); // TODO magic number
 
@@ -90,7 +91,7 @@ pub fn read_raw_track(
 
         let size = handle
             .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
+            .expect("Read Bulk failed");
 
         if size == 64 {
             result.extend_from_slice(&in_buf);
@@ -99,14 +100,14 @@ pub fn read_raw_track(
             break;
         } else {
             let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-            panic!("{}", response_text);
+            bail!("{}", response_text);
         }
     }
 
     if result.len() == 64 {
         println!("{result:?}");
     }
-    result
+    Ok(result)
 }
 
 pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {

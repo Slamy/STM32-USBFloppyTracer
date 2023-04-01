@@ -262,7 +262,7 @@ fn main() {
         let track_filter = cli.track_filter;
         let track_filter = track_filter.map(|f| TrackFilter::new(&f));
 
-        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive);
+        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive).unwrap();
     } else {
         let image = image.unwrap();
 
