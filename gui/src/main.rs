@@ -20,7 +20,6 @@ use fltk::{
 };
 
 use fltk::{enums::*, prelude::*, *};
-use fltk_grid::Grid;
 
 // get all the dark aqua colors
 use rusb::{Context, DeviceHandle};
@@ -109,7 +108,7 @@ fn main() {
     let app = app::App::default().with_scheme(app::Scheme::Gleam);
 
     let mut wind = Window::default()
-        .with_size(900, 450)
+        .with_size(750, 380)
         .with_label("USB Floppy Tracer")
         .center_screen();
 
@@ -118,7 +117,7 @@ fn main() {
     let mut frame = Frame::default_fill();
     frame.set_image(Some(im2));
 
-    let mut pack = Pack::new(15, 15, 150, 450 - 45, None);
+    let mut pack = Pack::new(15, 15, 150, 0, None);
     pack.set_spacing(9);
 
     let mut button_load = Button::default().with_size(0, 30).with_label("Load Image");
@@ -214,6 +213,7 @@ fn main() {
             Event::Paste => {
                 if dnd && released {
                     let path = app::event_text();
+                    println!("Drag and Drop {}", path);
                     let path = path.trim();
                     let path = path.replace("file://", "");
                     let path2 = std::path::PathBuf::from(&path);

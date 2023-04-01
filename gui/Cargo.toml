@@ -8,7 +8,6 @@ edition = "2021"
 
 [dependencies]
 fltk = "1.3.34"
-fltk-table = "0.3.0"
 fltk-theme = "0.7.0"
 tool = { path = "../tool" }
 util = { path = "../util" }
@@ -16,4 +15,3 @@ rusb = "0.9.1"
 debugless-unwrap = "0.0.4"
 anyhow = "1.0.70"
 
-fltk-grid = {path = "/home/andre/.rhack/fltk-grid-0.3.0"}
