@@ -52,15 +52,56 @@ enum Message {
 
 use fltk::enums::Event;
 
-fn generate_track_table() -> Vec<Frame> {
+// Directly taken from https://fltk-rs.github.io/fltk-book/Drag-&-Drop.html
+fn custom_handle(sender: &Sender<Message>) -> Box<dyn FnMut(&mut Frame, Event) -> bool> {
+    let mut dnd = false;
+    let mut released = false;
+    let sender = sender.clone();
+    Box::new(move |_, ev| match ev {
+        Event::DndEnter => {
+            dnd = true;
+            true
+        }
+        Event::DndDrag => true,
+        Event::DndRelease => {
+            released = true;
+            true
+        }
+        Event::Paste => {
+            if dnd && released {
+                let path = app::event_text();
+                println!("Drag and Drop {}", path);
+                let path = path.trim();
+                let path = path.replace("file://", "");
+                let path2 = std::path::PathBuf::from(&path);
+                if path2.exists() {
+                    println!("{}", path);
+                    sender.send(Message::LoadFile(path));
+                }
+                dnd = false;
+                released = false;
+                true
+            } else {
+                false
+            }
+        }
+        Event::DndLeave => {
+            dnd = false;
+            released = false;
+            true
+        }
+        _ => false,
+    })
+}
+
+fn generate_track_table(sender: &Sender<Message>) -> Vec<Frame> {
     let mut track_labels = Vec::new();
 
     let pack = Pack::default()
         .with_type(PackType::Horizontal)
         .with_size(0, 22);
 
-    let mut frame = Frame::default().with_size(22, 22);
-    //frame.set_frame(FrameType::ThinDownFrame);
+    Frame::default().with_size(22, 22); // empty tile top left
     for x in 0..10 {
         let mut frame = Frame::default()
             .with_label(&x.to_string())
@@ -86,10 +127,12 @@ fn generate_track_table() -> Vec<Frame> {
             .with_size(22, 22);
         frame.set_frame(FrameType::ThinDownFrame);
 
-        for x in 0..10 {
+        for _ in 0..10 {
             let mut frame = Frame::default().with_size(22, 22);
             frame.set_frame(FrameType::ThinDownBox);
             frame.set_color(Color::from_rgb(0, 0, 0));
+            frame.handle(custom_handle(&sender));
+
             track_labels.push(frame);
         }
         pack.end();
@@ -176,17 +219,16 @@ fn main() {
     let mut loaded_image_path = Output::default().with_size(500, 30).right_of(&pack, 15);
     loaded_image_path.set_value("No image loaded");
 
-    let mut side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
+    let side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
         .right_of(&pack, 10)
         .below_of(&loaded_image_path, 25);
-    //side_0.set_color(Color::from_rgb(0, 255, 0));
-    let mut track_labels_side0 = generate_track_table();
+    let mut track_labels_side0 = generate_track_table(&sender);
     side_0.end();
 
     let side_1 = Pack::default()
         .with_size(cellsize * 11, cellsize * 10)
         .with_label("Side 1");
-    let mut track_labels_side1 = generate_track_table();
+    let mut track_labels_side1 = generate_track_table(&sender);
     side_1.end();
     side_1.right_of(&side_0, cellsize);
 
@@ -195,47 +237,7 @@ fn main() {
     wind.make_resizable(false);
     wind.end();
 
-    // Directly taken from https://fltk-rs.github.io/fltk-book/Drag-&-Drop.html
-    wind.handle({
-        let mut dnd = false;
-        let mut released = false;
-        let sender = sender.clone();
-        move |_, ev| match ev {
-            Event::DndEnter => {
-                dnd = true;
-                true
-            }
-            Event::DndDrag => true,
-            Event::DndRelease => {
-                released = true;
-                true
-            }
-            Event::Paste => {
-                if dnd && released {
-                    let path = app::event_text();
-                    println!("Drag and Drop {}", path);
-                    let path = path.trim();
-                    let path = path.replace("file://", "");
-                    let path2 = std::path::PathBuf::from(&path);
-                    if path2.exists() {
-                        println!("{}", path);
-                        sender.send(Message::LoadFile(path));
-                    }
-                    dnd = false;
-                    released = false;
-                    true
-                } else {
-                    false
-                }
-            }
-            Event::DndLeave => {
-                dnd = false;
-                released = false;
-                true
-            }
-            _ => false,
-        }
-    });
+    frame.handle(custom_handle(&sender));
 
     wind.show();
 
