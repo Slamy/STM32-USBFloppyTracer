@@ -1,12 +1,15 @@
 #![feature(let_chains)]
 
 use std::{
+    fs::File,
+    io::Write,
     process::exit,
     sync::{atomic::AtomicBool, Arc},
     thread::{self, JoinHandle},
 };
 
-use anyhow::{bail, ensure};
+use anyhow::{bail, ensure, Context};
+use chrono::Local;
 use debugless_unwrap::DebuglessUnwrap;
 use fltk::{
     app::{self, channel, Sender},
@@ -22,20 +25,20 @@ use fltk::{
 use fltk::{enums::*, prelude::*, *};
 
 // get all the dark aqua colors
-use rusb::{Context, DeviceHandle};
+use rusb::DeviceHandle;
 use std::sync::atomic::Ordering::Relaxed;
 use util::DriveSelectState;
 
 use tool::{
     image_reader::parse_image,
     rawtrack::RawImage,
-    track_parser::read_first_track_discover_format,
-    usb_commands::{configure_device, wait_for_answer, write_raw_track},
+    track_parser::{read_first_track_discover_format, TrackPayload},
+    usb_commands::{configure_device, read_raw_track, wait_for_answer, write_raw_track},
     usb_device::{clear_buffers, init_usb},
 };
 
 struct Tools {
-    usb_handles: (DeviceHandle<Context>, u8, u8),
+    usb_handles: (DeviceHandle<rusb::Context>, u8, u8),
     image: Option<RawImage>,
 }
 #[derive(Clone)]
@@ -43,7 +46,8 @@ enum Message {
     VerifiedTrack { cylinder: u32, head: u32 },
     FailedOnTrack { cylinder: u32, head: u32 },
     LoadFile(String),
-    StartWrite,
+    WriteToDisk,
+    ReadFromDisk,
     Stop,
     Discover,
     ToolsReturned(Arc<Tools>),
@@ -155,7 +159,8 @@ fn main() {
         .with_label("USB Floppy Tracer")
         .center_screen();
 
-    let image = JpegImage::load("/home/andre/Downloads/lined-metal-background.jpg").unwrap();
+    let image = include_bytes!("../assets/lined-metal-background.jpg");
+    let image = JpegImage::from_data(image).unwrap();
     let im2 = TiledImage::new(image, 0, 0);
     let mut frame = Frame::default_fill();
     frame.set_image(Some(im2));
@@ -188,11 +193,12 @@ fn main() {
         .with_size(0, 30)
         .with_label("Write to Disk");
     button_write.deactivate();
-    button_write.emit(sender.clone(), Message::StartWrite);
+    button_write.emit(sender.clone(), Message::WriteToDisk);
 
     let mut button_read = Button::default()
         .with_size(0, 30)
         .with_label("Read from Disk");
+    button_read.emit(sender.clone(), Message::ReadFromDisk);
 
     let mut button_stop = Button::default().with_size(0, 30).with_label("Stop");
     button_stop.deactivate();
@@ -245,22 +251,12 @@ fn main() {
     let mut thread_handle: Option<JoinHandle<_>> = None;
     let mut usb_handle = Some(usb_handles);
 
-    //app.run().unwrap();
     while app.wait() {
         let selected_drive = if radio_drive_a.is_set() {
             DriveSelectState::A
         } else {
             DriveSelectState::B
         };
-
-        /*
-        let thread_finished = thread_handle.as_ref().map_or(false, |f| f.is_finished());
-
-        if thread_finished {
-            let x = thread_handle.take().unwrap();
-            let y = x.join();
-            println!("Joined");
-        } */
 
         match receiver.recv() {
             Some(Message::StatusMessage(text)) => status_text.set_value(&text),
@@ -317,7 +313,64 @@ fn main() {
                     })));
                 }));
             }
-            Some(Message::StartWrite) => {
+            Some(Message::ReadFromDisk) => {
+                let taken_image = maybe_image.take();
+                let taken_usb_handle = usb_handle.take().unwrap();
+
+                // it might be sometimes possible during an abort, that the endpoint
+                // still contains data. Must be removed before proceeding
+                clear_buffers(&taken_usb_handle);
+
+                let sender = sender.clone();
+
+                button_stop.activate();
+
+                button_write.deactivate();
+                button_read.deactivate();
+                button_load.deactivate();
+                button_discover.deactivate();
+
+                atomic_stop.store(false, Relaxed);
+                let atomic_stop = atomic_stop.clone();
+
+                if let Some(handle) = thread_handle.take() {
+                    handle.join().unwrap();
+                }
+
+                for cell in track_labels_side0.iter_mut() {
+                    cell.set_color(Color::from_rgb(0, 0, 0));
+                    cell.redraw();
+                }
+
+                for cell in track_labels_side1.iter_mut() {
+                    cell.set_color(Color::from_rgb(0, 0, 0));
+                    cell.redraw();
+                }
+
+                status_text.set_value("Reading...");
+
+                thread_handle = Some(thread::spawn(move || {
+                    let result = read_tracks_to_diskimage(
+                        &taken_usb_handle,
+                        selected_drive,
+                        sender.clone(),
+                        atomic_stop,
+                    );
+
+                    let status_string = match result {
+                        Ok(()) => "Disk read to image!".into(),
+                        Err(x) => x.to_string(),
+                    };
+
+                    sender.send(Message::StatusMessage(status_string));
+
+                    sender.send(Message::ToolsReturned(Arc::new(Tools {
+                        usb_handles: taken_usb_handle,
+                        image: taken_image,
+                    })));
+                }));
+            }
+            Some(Message::WriteToDisk) => {
                 let taken_image = maybe_image.take().unwrap();
                 let taken_usb_handle = usb_handle.take().unwrap();
 
@@ -415,8 +468,90 @@ fn main() {
     }
 }
 
+fn read_tracks_to_diskimage(
+    usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
+    select_drive: DriveSelectState,
+    sender: Sender<Message>,
+    atomic_stop: Arc<AtomicBool>,
+) -> Result<(), anyhow::Error> {
+    let (possible_track_parser, possible_formats) =
+        read_first_track_discover_format(usb_handles, select_drive)?;
+
+    let mut track_parser = possible_track_parser.context("Unable to detect floppy format!")?;
+    println!("Format is probably '{:?}'", possible_formats);
+
+    let now = Local::now();
+    let time_str = now.format("%Y%m%d_%H%M%S");
+    let filepath = format!("{}.{}", time_str, track_parser.default_file_extension());
+
+    println!("Resulting image will be {filepath}");
+
+    let track_filter = track_parser.default_trackfilter();
+    let duration_to_record = track_parser.duration_to_record();
+    configure_device(usb_handles, select_drive, track_parser.track_density(), 0);
+
+    let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
+    let mut cylinder_end = track_filter
+        .cyl_end
+        .context("Please specify the last cylinder to read!")?;
+
+    if cylinder_begin == cylinder_end {
+        cylinder_begin = 0;
+    } else {
+        cylinder_end += 1;
+    }
+
+    let heads = match track_filter.head {
+        Some(0) => 0..1,
+        Some(1) => 1..2,
+        None => 0..2,
+        _ => bail!("Program flow error!"),
+    };
+
+    println!("Reading cylinders {cylinder_begin} to {cylinder_end}");
+    let mut outfile = File::create(filepath).expect("Unable to create file");
+
+    for cylinder in (cylinder_begin..cylinder_end).step_by(track_parser.step_size()) {
+        for head in heads.clone() {
+            track_parser.expect_track(cylinder, head);
+
+            let mut possible_track: Option<TrackPayload> = None;
+
+            for _ in 0..5 {
+                if atomic_stop.load(Relaxed) {
+                    bail!("Stopped before finishing the operation");
+                }
+
+                let raw_data =
+                    read_raw_track(usb_handles, cylinder, head, false, duration_to_record)?;
+                let track = track_parser.parse_raw_track(&raw_data).ok();
+
+                if track.is_some() {
+                    possible_track = track;
+                    break;
+                }
+
+                println!("Reading of track {cylinder} {head} not successful. Try again...");
+
+                sender.send(Message::FailedOnTrack { cylinder, head });
+            }
+
+            let track =
+                possible_track.context(format!("Unable to read track {} {}", cylinder, head))?;
+            ensure!(cylinder == track.cylinder);
+            ensure!(head == track.head);
+
+            sender.send(Message::VerifiedTrack { cylinder, head });
+
+            outfile.write_all(&track.payload)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn write_and_verify_image(
-    usb_handles: &(DeviceHandle<Context>, u8, u8),
+    usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
     image: &RawImage,
     sender: Sender<Message>,
     atomic_stop: Arc<AtomicBool>,
