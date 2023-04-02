@@ -3,7 +3,6 @@
 use std::{
     fs::File,
     io::Write,
-    process::exit,
     sync::{atomic::AtomicBool, Arc},
     thread::{self, JoinHandle},
 };
@@ -12,8 +11,9 @@ use anyhow::{bail, ensure, Context};
 use chrono::Local;
 use debugless_unwrap::DebuglessUnwrap;
 use fltk::{
-    app::{self, channel, Sender},
+    app::{self, channel, Receiver, Sender},
     button::*,
+    dialog::alert_default,
     frame::Frame,
     group::{Pack, PackType},
     image::{JpegImage, TiledImage},
@@ -177,166 +177,212 @@ impl TrackLabels {
         }
     }
 }
-fn main() {
-    // connect to USB
-    let usb_handles = init_usb().unwrap_or_else(|| {
-        println!("Unable to initialize the USB device!");
-        exit(1);
-    });
 
-    let app = app::App::default().with_scheme(app::Scheme::Gleam);
+struct UsbFloppyTracerWindow {
+    button_load: Button,
+    atomic_stop: Arc<AtomicBool>,
+    button_discover: Button,
+    button_read: Button,
+    button_write: Button,
+    button_stop: Button,
+    radio_drive_a: RadioLightButton,
+    radio_drive_b: RadioLightButton,
+    receiver: Receiver<Message>,
+    sender: Sender<Message>,
+    maybe_image: Option<RawImage>,
+    usb_handle: Option<(DeviceHandle<rusb::Context>, u8, u8)>,
+    status_text: Output,
+    tracklabels: TrackLabels,
+    thread_handle: Option<JoinHandle<()>>,
+    loaded_image_path: Output,
+}
+impl UsbFloppyTracerWindow {
+    fn new() -> Self {
+        let mut wind = Window::default()
+            .with_size(750, 380)
+            .with_label("USB Floppy Tracer")
+            .center_screen();
 
-    let mut wind = Window::default()
-        .with_size(750, 380)
-        .with_label("USB Floppy Tracer")
-        .center_screen();
+        let image = include_bytes!("../assets/lined-metal-background.jpg");
+        let image = JpegImage::from_data(image).unwrap();
+        let im2 = TiledImage::new(image, 0, 0);
+        let mut frame = Frame::default_fill();
+        frame.set_image(Some(im2));
 
-    let image = include_bytes!("../assets/lined-metal-background.jpg");
-    let image = JpegImage::from_data(image).unwrap();
-    let im2 = TiledImage::new(image, 0, 0);
-    let mut frame = Frame::default_fill();
-    frame.set_image(Some(im2));
+        let mut pack = Pack::new(15, 15, 150, 0, None);
+        pack.set_spacing(9);
 
-    let mut pack = Pack::new(15, 15, 150, 0, None);
-    pack.set_spacing(9);
+        let mut button_load = Button::default().with_size(0, 30).with_label("Load Image");
 
-    let mut button_load = Button::default().with_size(0, 30).with_label("Load Image");
+        let (sender, receiver) = channel::<Message>();
+        let atomic_stop = Arc::new(AtomicBool::new(false));
 
-    let (sender, receiver) = channel::<Message>();
-    let atomic_stop = Arc::new(AtomicBool::new(false));
-    //let (thread_control, thread_receiver) = channel::<Message>();
-
-    button_load.set_callback({
-        let sender = sender.clone();
-        move |_| {
-            let mut nfc = dialog::NativeFileChooser::new(dialog::NativeFileChooserType::BrowseFile);
-            nfc.show();
-            let path = nfc.filename();
-            if path.exists() {
-                sender.send(Message::LoadFile(path.to_str().unwrap().to_owned()));
+        button_load.set_callback({
+            let sender = sender.clone();
+            move |_| {
+                let mut nfc =
+                    dialog::NativeFileChooser::new(dialog::NativeFileChooserType::BrowseFile);
+                nfc.show();
+                let path = nfc.filename();
+                if path.exists() {
+                    sender.send(Message::LoadFile(path.to_str().unwrap().to_owned()));
+                }
             }
+        });
+
+        let mut button_discover = Button::default().with_size(0, 30).with_label("Discover");
+        button_discover.emit(sender.clone(), Message::Discover);
+
+        let mut button_write = Button::default()
+            .with_size(0, 30)
+            .with_label("Write to Disk");
+        button_write.deactivate();
+        button_write.emit(sender.clone(), Message::WriteToDisk);
+
+        let mut button_read = Button::default()
+            .with_size(0, 30)
+            .with_label("Read from Disk");
+        button_read.emit(sender.clone(), Message::ReadFromDisk);
+
+        let mut button_stop = Button::default().with_size(0, 30).with_label("Stop");
+        button_stop.deactivate();
+
+        button_stop.emit(sender.clone(), Message::Stop);
+
+        let pack2 = Pack::default()
+            .with_type(PackType::Horizontal)
+            .with_size(150, 30);
+
+        let mut radio_drive_a = RadioLightButton::default()
+            .with_label("Drive A")
+            .with_size(150 / 2, 30);
+        let radio_drive_b = RadioLightButton::default()
+            .with_label("Drive B")
+            .with_size(150 / 2, 30);
+        radio_drive_a.set(true);
+        pack2.end();
+
+        pack.end();
+
+        let cellsize = 22;
+
+        let mut loaded_image_path = Output::default().with_size(500, 30).right_of(&pack, 15);
+        loaded_image_path.set_value("No image loaded");
+
+        let side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
+            .right_of(&pack, 10)
+            .below_of(&loaded_image_path, 25);
+        let track_labels_side0 = generate_track_table(&sender);
+        side_0.end();
+
+        let side_1 = Pack::default()
+            .with_size(cellsize * 11, cellsize * 10)
+            .with_label("Side 1");
+        let track_labels_side1 = generate_track_table(&sender);
+
+        side_1.end();
+        side_1.right_of(&side_0, cellsize);
+
+        let tracklabels = TrackLabels {
+            frames: [track_labels_side0, track_labels_side1],
+        };
+
+        let mut status_text = Output::default().with_size(500, 30).below_of(&side_0, 15);
+
+        wind.make_resizable(false);
+        wind.end();
+
+        frame.handle(custom_handle(&sender));
+
+        let maybe_image: Option<RawImage> = None;
+        let thread_handle: Option<JoinHandle<_>> = None;
+        let usb_handle = init_usb();
+
+        if usb_handle.is_some() {
+            status_text.set_value("Systems ready!");
+        } else {
+            status_text.set_value("Failed to initialize USB device");
         }
-    });
 
-    let mut button_discover = Button::default().with_size(0, 30).with_label("Discover");
-    button_discover.emit(sender.clone(), Message::Discover);
+        wind.show();
 
-    let mut button_write = Button::default()
-        .with_size(0, 30)
-        .with_label("Write to Disk");
-    button_write.deactivate();
-    button_write.emit(sender.clone(), Message::WriteToDisk);
+        UsbFloppyTracerWindow {
+            button_load,
+            atomic_stop,
+            button_discover,
+            button_read,
+            button_stop,
+            radio_drive_a,
+            radio_drive_b,
+            receiver,
+            sender,
+            maybe_image,
+            thread_handle,
+            usb_handle,
+            status_text,
+            button_write,
+            tracklabels,
+            loaded_image_path,
+        }
+    }
 
-    let mut button_read = Button::default()
-        .with_size(0, 30)
-        .with_label("Read from Disk");
-    button_read.emit(sender.clone(), Message::ReadFromDisk);
-
-    let mut button_stop = Button::default().with_size(0, 30).with_label("Stop");
-    button_stop.deactivate();
-
-    button_stop.emit(sender.clone(), Message::Stop);
-
-    let pack2 = Pack::default()
-        .with_type(PackType::Horizontal)
-        .with_size(150, 30);
-
-    let mut radio_drive_a = RadioLightButton::default()
-        .with_label("Drive A")
-        .with_size(150 / 2, 30);
-    let mut radio_drive_b = RadioLightButton::default()
-        .with_label("Drive B")
-        .with_size(150 / 2, 30);
-    radio_drive_a.set(true);
-    pack2.end();
-
-    pack.end();
-
-    let cellsize = 22;
-
-    let mut loaded_image_path = Output::default().with_size(500, 30).right_of(&pack, 15);
-    loaded_image_path.set_value("No image loaded");
-
-    let side_0 = Pack::new(0, 0, cellsize * 11, cellsize * 10, "Side 0")
-        .right_of(&pack, 10)
-        .below_of(&loaded_image_path, 25);
-    let track_labels_side0 = generate_track_table(&sender);
-    side_0.end();
-
-    let side_1 = Pack::default()
-        .with_size(cellsize * 11, cellsize * 10)
-        .with_label("Side 1");
-    let track_labels_side1 = generate_track_table(&sender);
-
-    side_1.end();
-    side_1.right_of(&side_0, cellsize);
-
-    let mut tracklabels = TrackLabels {
-        frames: [track_labels_side0, track_labels_side1],
-    };
-
-    let mut status_text = Output::default().with_size(500, 30).below_of(&side_0, 15);
-
-    wind.make_resizable(false);
-    wind.end();
-
-    frame.handle(custom_handle(&sender));
-
-    wind.show();
-
-    let mut maybe_image: Option<RawImage> = None;
-    let mut thread_handle: Option<JoinHandle<_>> = None;
-    let mut usb_handle = Some(usb_handles);
-
-    while app.wait() {
-        let selected_drive = if radio_drive_a.is_set() {
+    fn take_usb_handle(&mut self) -> anyhow::Result<(DeviceHandle<rusb::Context>, u8, u8)> {
+        if self.usb_handle.is_none() {
+            self.usb_handle = init_usb().or(None);
+        }
+        self.usb_handle
+            .take()
+            .context("USB Device still not available!")
+    }
+    fn handle(&mut self) -> anyhow::Result<()> {
+        let selected_drive = if self.radio_drive_a.is_set() {
             DriveSelectState::A
         } else {
             DriveSelectState::B
         };
 
-        match receiver.recv() {
-            Some(Message::StatusMessage(text)) => status_text.set_value(&text),
+        match self.receiver.recv() {
+            Some(Message::StatusMessage(text)) => self.status_text.set_value(&text),
             Some(Message::ToolsReturned(tools)) => {
                 let tools = Arc::try_unwrap(tools).debugless_unwrap();
-                maybe_image = tools.image;
-                usb_handle = Some(tools.usb_handles);
+                self.maybe_image = tools.image;
+                self.usb_handle = Some(tools.usb_handles);
 
-                if maybe_image.is_some() {
-                    button_write.activate();
+                if self.maybe_image.is_some() {
+                    self.button_write.activate();
                 }
-                button_read.activate();
-                button_load.activate();
-                button_discover.activate();
-                radio_drive_a.activate();
-                radio_drive_b.activate();
+                self.button_read.activate();
+                self.button_load.activate();
+                self.button_discover.activate();
+                self.radio_drive_a.activate();
+                self.radio_drive_b.activate();
 
-                button_stop.deactivate();
+                self.button_stop.deactivate();
             }
 
             Some(Message::Stop) => {
-                atomic_stop.store(true, Relaxed);
-                button_stop.deactivate();
+                self.atomic_stop.store(true, Relaxed);
+                self.button_stop.deactivate();
             }
             Some(Message::Discover) => {
-                status_text.set_value("Checking...");
+                let taken_usb_handle = self.take_usb_handle()?;
+                let taken_image = self.maybe_image.take();
+                let sender = self.sender.clone();
 
-                button_write.deactivate();
-                button_read.deactivate();
-                button_load.deactivate();
-                button_discover.deactivate();
-                radio_drive_a.deactivate();
-                radio_drive_b.deactivate();
+                self.status_text.set_value("Checking...");
 
-                let taken_usb_handle = usb_handle.take().unwrap();
-                let taken_image = maybe_image.take();
-                let sender = sender.clone();
+                self.button_write.deactivate();
+                self.button_read.deactivate();
+                self.button_load.deactivate();
+                self.button_discover.deactivate();
+                self.radio_drive_a.deactivate();
+                self.radio_drive_b.deactivate();
 
                 // it might be sometimes possible during an abort, that the endpoint
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
-                thread_handle = Some(thread::spawn(move || {
+                let thread_handle = thread::spawn(move || {
                     let result =
                         read_first_track_discover_format(&taken_usb_handle, selected_drive);
 
@@ -356,39 +402,41 @@ fn main() {
                         usb_handles: taken_usb_handle,
                         image: taken_image,
                     })));
-                }));
+                });
+
+                self.thread_handle = Some(thread_handle);
             }
             Some(Message::ReadFromDisk) => {
-                let taken_image = maybe_image.take();
-                let taken_usb_handle = usb_handle.take().unwrap();
+                let taken_image = self.maybe_image.take();
+                let taken_usb_handle = self.take_usb_handle()?;
 
                 // it might be sometimes possible during an abort, that the endpoint
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
-                let sender = sender.clone();
+                let sender = self.sender.clone();
 
-                button_stop.activate();
+                self.button_stop.activate();
 
-                button_write.deactivate();
-                button_read.deactivate();
-                button_load.deactivate();
-                button_discover.deactivate();
-                radio_drive_a.deactivate();
-                radio_drive_b.deactivate();
+                self.button_write.deactivate();
+                self.button_read.deactivate();
+                self.button_load.deactivate();
+                self.button_discover.deactivate();
+                self.radio_drive_a.deactivate();
+                self.radio_drive_b.deactivate();
 
-                atomic_stop.store(false, Relaxed);
-                let atomic_stop = atomic_stop.clone();
+                self.atomic_stop.store(false, Relaxed);
+                let atomic_stop = self.atomic_stop.clone();
 
-                if let Some(handle) = thread_handle.take() {
+                if let Some(handle) = self.thread_handle.take() {
                     handle.join().unwrap();
                 }
 
-                tracklabels.all_black();
+                self.tracklabels.all_black();
 
-                status_text.set_value("Reading...");
+                self.status_text.set_value("Reading...");
 
-                thread_handle = Some(thread::spawn(move || {
+                self.thread_handle = Some(thread::spawn(move || {
                     let result = read_tracks_to_diskimage(
                         &taken_usb_handle,
                         selected_drive,
@@ -410,37 +458,37 @@ fn main() {
                 }));
             }
             Some(Message::WriteToDisk) => {
-                let taken_image = maybe_image.take().unwrap();
-                let taken_usb_handle = usb_handle.take().unwrap();
+                let taken_image = self.maybe_image.take().unwrap();
+                let taken_usb_handle = self.take_usb_handle()?;
 
                 // it might be sometimes possible during an abort, that the endpoint
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
                 configure_device(&taken_usb_handle, selected_drive, taken_image.density, 0);
-                let sender = sender.clone();
+                let sender = self.sender.clone();
 
-                button_stop.activate();
+                self.button_stop.activate();
 
-                button_write.deactivate();
-                button_read.deactivate();
-                button_load.deactivate();
-                button_discover.deactivate();
-                radio_drive_a.deactivate();
-                radio_drive_b.deactivate();
+                self.button_write.deactivate();
+                self.button_read.deactivate();
+                self.button_load.deactivate();
+                self.button_discover.deactivate();
+                self.radio_drive_a.deactivate();
+                self.radio_drive_b.deactivate();
 
-                atomic_stop.store(false, Relaxed);
-                let atomic_stop = atomic_stop.clone();
+                self.atomic_stop.store(false, Relaxed);
+                let atomic_stop = self.atomic_stop.clone();
 
-                if let Some(handle) = thread_handle.take() {
+                if let Some(handle) = self.thread_handle.take() {
                     handle.join().unwrap();
                 }
 
-                tracklabels.black_if_existing(&taken_image);
+                self.tracklabels.black_if_existing(&taken_image);
 
-                status_text.set_value("Writing...");
+                self.status_text.set_value("Writing...");
 
-                thread_handle = Some(thread::spawn(move || {
+                self.thread_handle = Some(thread::spawn(move || {
                     let result = write_and_verify_image(
                         &taken_usb_handle,
                         &taken_image,
@@ -463,21 +511,36 @@ fn main() {
             }
             Some(Message::LoadFile(filepath)) => match parse_image(&filepath) {
                 Ok(i) => {
-                    tracklabels.black_if_existing(&i);
-                    maybe_image = Some(i);
-                    loaded_image_path.set_value(&filepath);
-                    button_write.activate();
+                    self.tracklabels.black_if_existing(&i);
+                    self.maybe_image = Some(i);
+                    self.loaded_image_path.set_value(&filepath);
+                    self.button_write.activate();
                 }
-                Err(s) => status_text.set_value(&s.to_string()),
+                Err(s) => self.status_text.set_value(&s.to_string()),
             },
             Some(Message::FailedOnTrack { cylinder, head }) => {
-                tracklabels.set_color(cylinder, head, Color::from_rgb(255, 0, 0));
+                self.tracklabels
+                    .set_color(cylinder, head, Color::from_rgb(255, 0, 0));
             }
             Some(Message::VerifiedTrack { cylinder, head }) => {
-                tracklabels.set_color(cylinder, head, Color::from_rgb(0, 255, 0));
+                self.tracklabels
+                    .set_color(cylinder, head, Color::from_rgb(0, 255, 0));
             }
 
             None => {}
+        }
+
+        Ok(())
+    }
+}
+
+fn main() {
+    let app = app::App::default().with_scheme(app::Scheme::Gleam);
+
+    let mut window = UsbFloppyTracerWindow::new();
+    while app.wait() {
+        if let Err(e) = window.handle() {
+            alert_default(&e.to_string());
         }
     }
 }

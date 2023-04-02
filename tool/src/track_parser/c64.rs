@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context};
+use anyhow::ensure;
 use util::{
     c64_geometry::{get_track_settings, TrackConfiguration},
     duration_of_rotation_as_stm_tim_raw,
