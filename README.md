@@ -99,7 +99,7 @@ This is however only a matter of time until certain features reach the stable ve
 
 Ensure that your rust is up-to-date:
 
-	rustup update nightly
+    rustup update nightly
 
 If not yet performed, the target of the microcontroller must be added to the rust environment
 
@@ -111,13 +111,14 @@ Install cargo-embed as it is used for flashing:
 
 ## How to build and flash the firmware
 
-	cd firmware
-	cargo embed --release
+    cd firmware
+    cargo embed --release
 
 ## How to build and install the tool
 
-	cargo build --release
-	cargo install --path tool/
+    cargo build --release
+    cargo install --path cli
+    cargo install --path gui
 
 ## Why not use the Greaseweazle or the Kryoflux?
 

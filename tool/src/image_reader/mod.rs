@@ -1,3 +1,11 @@
+#![warn(clippy::panic)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::indexing_slicing)]
+#![warn(clippy::panic_in_result_fn)]
+#![warn(clippy::unwrap_in_result)]
+#![warn(clippy::unwrap_used)]
+
+use anyhow::{bail, ensure, Context};
 use std::{ffi::OsStr, path::Path};
 
 use crate::rawtrack::RawImage;
@@ -16,23 +24,29 @@ pub mod image_ipf;
 pub mod image_iso;
 pub mod image_stx;
 
-pub fn parse_image(path: &str) -> RawImage {
-    let extension = Path::new(path)
+pub fn parse_image(path: &str) -> anyhow::Result<RawImage> {
+    let path2 = Path::new(path);
+
+    ensure!(path2.exists(), "File doesn't exist!");
+
+    let extension = path2
         .extension()
         .and_then(OsStr::to_str)
-        .expect("Unknown file extension!");
+        .context("Unknown file extension!")?;
 
-    match extension {
-        "ipf" => parse_ipf_image(path),
-        "adf" => parse_adf_image(path),
-        "d64" => parse_d64_image(path),
-        "g64" => parse_g64_image(path),
-        "st" => parse_iso_image(path),
-        "img" => parse_iso_image(path),
-        "stx" => parse_stx_image(path),
-        "dsk" => parse_dsk_image(path),
-        _ => panic!("{} is an unknown file extension!", extension),
-    }
+    let image = match extension {
+        "ipf" => parse_ipf_image(path)?,
+        "adf" => parse_adf_image(path)?,
+        "d64" => parse_d64_image(path)?,
+        "g64" => parse_g64_image(path)?,
+        "st" => parse_iso_image(path)?,
+        "img" => parse_iso_image(path)?,
+        "stx" => parse_stx_image(path)?,
+        "dsk" => parse_dsk_image(path)?,
+        _ => bail!("{} is an unknown file extension!", extension),
+    };
+
+    Ok(image)
 }
 
 #[cfg(test)]
@@ -46,16 +60,16 @@ mod tests {
     use rstest::rstest;
     use util::{DRIVE_3_5_RPM, DRIVE_5_25_RPM};
 
-    fn md5_sum_of_file(path: &str) -> String {
-        let mut f = File::open(path).expect("no file found");
-        let metadata = fs::metadata(path).expect("unable to read metadata");
+    fn md5_sum_of_file(path: &str) -> anyhow::Result<String> {
+        let mut f = File::open(path)?;
+        let metadata = fs::metadata(path)?;
 
         let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-        let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
-        assert_eq!(bytes_read, metadata.len() as usize);
+        let bytes_read = f.read(whole_file_buffer.as_mut())?;
+        ensure!(bytes_read == metadata.len() as usize);
         let file_hash = md5::compute(&whole_file_buffer);
         let file_hashstr = format!("{file_hash:x}");
-        file_hashstr
+        Ok(file_hashstr)
     }
 
     #[rstest]
@@ -126,12 +140,12 @@ mod tests {
     ) {
         // before we start, we must be sure that this is really the file we want to process
         assert_eq!(
-            md5_sum_of_file(filepath),
+            md5_sum_of_file(filepath).unwrap(),
             expected_file_md5,
             "MD5 Sum of file not as expected."
         );
 
-        let mut image = parse_image(filepath);
+        let mut image = parse_image(filepath).unwrap();
 
         let mut context = md5::Context::new();
 

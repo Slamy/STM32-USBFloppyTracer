@@ -4,6 +4,7 @@
       "Cargo.toml",
       "firmware/Cargo.toml",
     ],
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "rust-analyzer.checkOnSave.command": "clippy"
   }
   

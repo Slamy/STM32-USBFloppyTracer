@@ -1,3 +1,6 @@
+use anyhow::bail;
+use anyhow::ensure;
+use anyhow::Context;
 use util::bitstream::BitStreamCollector;
 use util::mfm::MfmEncoder;
 use util::mfm::MfmWord;
@@ -28,7 +31,7 @@ const BYTES_PER_SECTOR: usize = 512;
 const POSSIBLE_CYLINDER_COUNTS: [usize; 10] = [38, 39, 40, 41, 42, 78, 79, 80, 81, 82];
 const POSSIBLE_SECTOR_COUNTS: [usize; 5] = [9, 10, 11, 15, 18];
 
-fn calculate_floppy_geometry(number_bytes: usize) -> (usize, usize) {
+fn calculate_floppy_geometry(number_bytes: usize) -> anyhow::Result<(usize, usize)> {
     // Iterate first over sectors and then over cylinders
     // This favors 80 cyl/9 sec over 40 cyl/18 sec which could make sense
     // but doesn't really...
@@ -36,11 +39,12 @@ fn calculate_floppy_geometry(number_bytes: usize) -> (usize, usize) {
         for cylinders in POSSIBLE_CYLINDER_COUNTS {
             if number_bytes == cylinders * HEADS * BYTES_PER_SECTOR * sectors {
                 println!("Disk has {cylinders} cylinders and {sectors} sectors!");
-                return (cylinders, sectors);
+                return Ok((cylinders, sectors));
             }
         }
     }
-    panic!()
+
+    bail!("Unable to guess the geometry of the disk image")
 }
 
 pub struct IsoGeometry {
@@ -200,15 +204,18 @@ where
     }
 }
 
-fn generate_interleaving_table(sectors_per_track: usize, interleaving: usize) -> Vec<usize> {
+fn generate_interleaving_table(
+    sectors_per_track: usize,
+    interleaving: usize,
+) -> anyhow::Result<Vec<usize>> {
     let mut interleaving_table = vec![0_usize; sectors_per_track];
 
     for index in 0..sectors_per_track {
         let target = (index * (interleaving + 1)) % sectors_per_track;
-        interleaving_table[target] = index;
+        ensure_index_mut!(interleaving_table[target]) = index;
     }
 
-    interleaving_table
+    Ok(interleaving_table)
 }
 
 fn generate_iso_track(
@@ -216,25 +223,25 @@ fn generate_iso_track(
     head: u32,
     geometry: &IsoGeometry,
     sectors_in: &mut ChunksExact<u8>,
-) -> Vec<u8> {
+) -> anyhow::Result<Vec<u8>> {
     let mut trackbuf: Vec<u8> = Vec::new();
     let mut collector = BitStreamCollector::new(|f| trackbuf.push(f));
     let mut encoder = MfmEncoder::new(|cell| collector.feed(cell));
 
     let mut sectors: Vec<(u8, &[u8])> = Vec::new();
     for sector in 0..geometry.sectors_per_track {
-        let sectordata = sectors_in.next().unwrap();
+        let sectordata = sectors_in.next().context(program_flow_error!())?;
         sectors.push((sector as u8 + 1, sectordata));
     }
 
     let interleaving_table =
-        generate_interleaving_table(geometry.sectors_per_track, geometry.interleaving as usize);
+        generate_interleaving_table(geometry.sectors_per_track, geometry.interleaving as usize)?;
 
     // just after the index pulse
     generate_iso_gap(geometry.gap1_size as usize, 0x4e, &mut encoder);
 
     for index in interleaving_table {
-        let (idam_sector, sectordata) = sectors[index];
+        let (idam_sector, sectordata) = ensure_index!(sectors[index]);
 
         // sector header
         generate_iso_sectorheader(
@@ -257,17 +264,16 @@ fn generate_iso_track(
     // end the track
     generate_iso_gap(geometry.gap5_size as usize, 0x4e, &mut encoder);
 
-    trackbuf
+    Ok(trackbuf)
 }
 
-#[must_use]
-pub fn parse_iso_image(path: &str) -> RawImage {
+pub fn parse_iso_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading ISO image from {path} ...");
 
-    let mut f = File::open(path).expect("no file found");
-    let metadata = fs::metadata(path).expect("unable to read metadata");
+    let mut f = File::open(path)?;
+    let metadata = fs::metadata(path)?;
 
-    let (cylinders, sectors_per_track) = calculate_floppy_geometry(metadata.len() as usize);
+    let (cylinders, sectors_per_track) = calculate_floppy_geometry(metadata.len() as usize)?;
 
     let geometry = IsoGeometry::new(sectors_per_track);
 
@@ -279,8 +285,8 @@ pub fn parse_iso_image(path: &str) -> RawImage {
 
     let mut buffer = vec![0; metadata.len() as usize];
 
-    let bytes_read = f.read(&mut buffer).expect("buffer overflow");
-    assert!(bytes_read == metadata.len() as usize);
+    let bytes_read = f.read(&mut buffer)?;
+    ensure!(bytes_read == metadata.len() as usize);
 
     let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR);
     let mut tracks: Vec<RawTrack> = Vec::new();
@@ -288,7 +294,7 @@ pub fn parse_iso_image(path: &str) -> RawImage {
     for cylinder in 0..cylinders {
         for head in 0..HEADS {
             let trackbuf =
-                generate_iso_track(cylinder as u32, head as u32, &geometry, &mut sectors);
+                generate_iso_track(cylinder as u32, head as u32, &geometry, &mut sectors)?;
 
             let densitymap = vec![DensityMapEntry {
                 number_of_cellbytes: trackbuf.len(),
@@ -305,9 +311,9 @@ pub fn parse_iso_image(path: &str) -> RawImage {
         }
     }
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch3_5,
         density,
-    }
+    })
 }

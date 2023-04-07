@@ -1,5 +1,6 @@
 use std::{ffi::OsStr, fs::File, io::Write, path::Path};
 
+use anyhow::bail;
 use chrono::Local;
 use rusb::{Context, DeviceHandle};
 use util::{duration_of_rotation_as_stm_tim_raw, Density, DriveSelectState, DRIVE_SLOWEST_RPM};
@@ -57,11 +58,13 @@ fn concatenate_sectors(
     }
 }
 
-#[must_use]
+type PossibleFormats = Vec<String>;
+type DynTrackParser = Box<dyn TrackParser>;
+
 pub fn read_first_track_discover_format(
     usb_handles: &(DeviceHandle<Context>, u8, u8),
     select_drive: DriveSelectState,
-) -> Option<Box<dyn TrackParser>> {
+) -> anyhow::Result<(Option<DynTrackParser>, PossibleFormats)> {
     // For some reason, the High density can read both densities on the first few cylinders...
     // This is very useful and I assume not random at all
     configure_device(usb_handles, select_drive, Density::High, 0);
@@ -70,7 +73,7 @@ pub fn read_first_track_discover_format(
     // We only have one chance here. So just get 125% of the first track with the slowest drive we support.
     let duration_to_record = duration_of_rotation_as_stm_tim_raw(DRIVE_SLOWEST_RPM) * 125 / 100;
 
-    let track_parsers: Vec<Box<dyn TrackParser>> = vec![
+    let track_parsers: Vec<DynTrackParser> = vec![
         Box::new(AmigaTrackParser::new(util::Density::SingleDouble)),
         Box::new(C64TrackParser::new()),
         Box::new(IsoTrackParser::new(None, Density::SingleDouble)),
@@ -79,25 +82,26 @@ pub fn read_first_track_discover_format(
     let cylinder = 0;
     let head = 0;
 
-    let raw_data = read_raw_track(usb_handles, cylinder, head, false, duration_to_record);
+    let raw_data = read_raw_track(usb_handles, cylinder, head, false, duration_to_record)?;
 
-    let mut result: Option<Box<dyn TrackParser>> = None;
+    let mut possible_track_parser: Option<DynTrackParser> = None;
+    let mut possible_formats = Vec::new();
 
     for mut parser in track_parsers {
         parser.expect_track(cylinder, head);
         let track = parser.parse_raw_track(&raw_data).ok();
 
         if let Some(_track) = track {
-            println!("Format is probably '{}'", parser.format_name());
+            possible_formats.push(parser.format_name().into());
 
-            let old = result.replace(parser);
+            let old = possible_track_parser.replace(parser);
             if old.is_some() {
                 println!("Warning: Multiple possible formats ?!?!?!?!")
             }
         }
     }
 
-    result
+    Ok((possible_track_parser, possible_formats))
 }
 
 pub fn read_tracks_to_diskimage(
@@ -105,10 +109,13 @@ pub fn read_tracks_to_diskimage(
     track_filter: Option<TrackFilter>,
     filepath: &str,
     select_drive: DriveSelectState,
-) {
+) -> anyhow::Result<()> {
     let (mut track_parser, filepath) = if filepath == "justread" {
-        let track_parser = read_first_track_discover_format(usb_handles, select_drive)
-            .expect("Unable to detect floppy format!");
+        let (possible_track_parser, possible_formats) =
+            read_first_track_discover_format(usb_handles, select_drive)?;
+
+        let track_parser = possible_track_parser.expect("Unable to detect floppy format!");
+        println!("Format is probably '{:?}'", possible_formats);
 
         let now = Local::now();
         let time_str = now.format("%Y%m%d_%H%M%S");
@@ -123,7 +130,7 @@ pub fn read_tracks_to_diskimage(
             .and_then(OsStr::to_str)
             .expect("No file extension!");
 
-        let track_parser: Box<dyn TrackParser> = match file_extension {
+        let track_parser: DynTrackParser = match file_extension {
             "adf" => Box::new(AmigaTrackParser::new(util::Density::SingleDouble)),
             "d64" => Box::new(C64TrackParser::new()),
             "st" => Box::new(IsoTrackParser::new(None, Density::SingleDouble)),
@@ -153,7 +160,7 @@ pub fn read_tracks_to_diskimage(
         Some(0) => 0..1,
         Some(1) => 1..2,
         None => 0..2,
-        _ => panic!("Program flow error!"),
+        _ => bail!("Program flow error!"),
     };
 
     println!("Reading cylinders {cylinder_begin} to {cylinder_end}");
@@ -167,7 +174,7 @@ pub fn read_tracks_to_diskimage(
 
             for _ in 0..5 {
                 let raw_data =
-                    read_raw_track(usb_handles, cylinder, head, false, duration_to_record);
+                    read_raw_track(usb_handles, cylinder, head, false, duration_to_record)?;
                 let track = track_parser.parse_raw_track(&raw_data).ok();
 
                 if track.is_some() {
@@ -187,4 +194,6 @@ pub fn read_tracks_to_diskimage(
             outfile.write_all(&track.payload).unwrap();
         }
     }
+
+    Ok(())
 }

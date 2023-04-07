@@ -198,7 +198,7 @@ impl TrackParser for IsoTrackParser {
             }
         });
 
-        assert!(self.assumed_disk_type.is_some());
+        ensure!(self.assumed_disk_type.is_some());
 
         // The number of sectors must match our expectations in case they exist
         if let Some(expected_sectors_per_track) = self.expected_sectors_per_track {

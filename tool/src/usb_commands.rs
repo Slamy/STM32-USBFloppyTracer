@@ -1,5 +1,6 @@
-use std::{slice::Iter, time::Duration};
+use std::time::Duration;
 
+use anyhow::bail;
 use rusb::{Context, DeviceHandle};
 use util::{Density, DriveSelectState};
 
@@ -48,14 +49,13 @@ pub fn configure_device(
         .unwrap();
 }
 
-#[must_use]
 pub fn read_raw_track(
     handles: &(DeviceHandle<Context>, u8, u8),
     cylinder: u32,
     head: u32,
     wait_for_index: bool,
     duration_to_record: usize,
-) -> Vec<u8> {
+) -> anyhow::Result<Vec<u8>> {
     let (handle, endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
@@ -81,7 +81,7 @@ pub fn read_raw_track(
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
+        .expect("Bulk Transfer failed");
 
     let mut result = Vec::with_capacity(800 * 64); // TODO magic number
 
@@ -90,7 +90,7 @@ pub fn read_raw_track(
 
         let size = handle
             .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
+            .expect("Read Bulk failed");
 
         if size == 64 {
             result.extend_from_slice(&in_buf);
@@ -99,14 +99,14 @@ pub fn read_raw_track(
             break;
         } else {
             let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-            panic!("{}", response_text);
+            bail!("{}", response_text);
         }
     }
 
     if result.len() == 64 {
         println!("{result:?}");
     }
-    result
+    Ok(result)
 }
 
 pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {
@@ -174,93 +174,74 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
     }
 }
 
-pub fn wait_for_last_answer(handles: &(DeviceHandle<Context>, u8, u8), verify_track: &RawTrack) {
-    let (handle, endpoint_in, _endpoint_out) = handles;
-    let timeout = Duration::from_secs(10);
-
-    // TODO copy pasta
-    loop {
-        let mut in_buf = [0u8; 64];
-
-        let size = handle
-            .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
-
-        let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(' ').collect();
-
-        match response_split[0] {
-            "WrittenAndVerified" => {
-                println!(
-                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
-                    response_split[1],
-                    response_split[2],
-                    response_split[3],
-                    response_split[4],
-                    response_split[5],
-                    response_split[6],
-                );
-                assert_eq!(verify_track.cylinder, response_split[1].parse().unwrap());
-                assert_eq!(verify_track.head, response_split[2].parse().unwrap());
-                break;
-            }
-            "GotCmd" => {} // Ignore
-            "Fail" => panic!(
-                "Failed writing cylinder {} head {} - writes:{}, reads:{}",
-                response_split[1], response_split[2], response_split[3], response_split[4],
-            ),
-            _ => panic!("Unexpected answer from device: {}", response_text),
-        }
-    }
+pub enum UsbAnswer {
+    WrittenAndVerified {
+        cylinder: u32,
+        head: u32,
+        writes: u32,
+        reads: u32,
+        max_err: u32,
+        write_precomp: u32,
+    },
+    Fail {
+        cylinder: u32,
+        head: u32,
+        writes: u32,
+        reads: u32,
+        error: String,
+    },
+    GotCmd,
+    WriteProtected,
 }
 
-pub fn wait_for_answer(
-    handles: &(DeviceHandle<Context>, u8, u8),
-    verify_iterator: &mut Iter<RawTrack>,
-) {
+pub fn wait_for_answer(handles: &(DeviceHandle<Context>, u8, u8)) -> UsbAnswer {
     let (handle, endpoint_in, _endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
     // TODO copy pasta
-    loop {
-        let mut in_buf = [0u8; 64];
+    let mut in_buf = [0u8; 64];
 
-        let size = handle
-            .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .unwrap();
+    let size = handle
+        .read_bulk(*endpoint_in, &mut in_buf, timeout)
+        .unwrap();
 
-        let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
-        let response_split: Vec<&str> = response_text.split(' ').collect();
+    let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
+    let response_split: Vec<&str> = response_text.split(' ').collect();
 
-        match response_split[0] {
-            "WrittenAndVerified" => {
-                println!(
-                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
-                    response_split[1],
-                    response_split[2],
-                    response_split[3],
-                    response_split[4],
-                    response_split[5],
-                    response_split[6],
-                );
-                let expected_to_verify = verify_iterator.next().unwrap();
-                assert_eq!(
-                    expected_to_verify.cylinder,
-                    response_split[1].parse().unwrap()
-                );
-                assert_eq!(expected_to_verify.head, response_split[2].parse().unwrap());
+    match response_split[0] {
+        "WrittenAndVerified" => {
+            let cylinder = response_split[1].parse().unwrap();
+            let head = response_split[2].parse().unwrap();
+            let writes = response_split[3].parse().unwrap();
+            let reads = response_split[4].parse().unwrap();
+            let max_err = response_split[5].parse().unwrap();
+            let write_precomp = response_split[6].parse().unwrap();
+
+            UsbAnswer::WrittenAndVerified {
+                cylinder,
+                head,
+                writes,
+                reads,
+                max_err,
+                write_precomp,
             }
-            "GotCmd" => break, // Continue with next track!
-            "Fail" => panic!(
-                "Failed writing track {} head {} - num_writes:{}, num_reads:{} error:{}",
-                response_split[1],
-                response_split[2],
-                response_split[3],
-                response_split[4],
-                response_split[5],
-            ),
-            "WriteProtected" => panic!("Disk is write protected!"),
-            _ => panic!("Unexpected answer from device: {}", response_text),
         }
+        "GotCmd" => UsbAnswer::GotCmd,
+        "Fail" => {
+            let cylinder = response_split[1].parse().unwrap();
+            let head = response_split[2].parse().unwrap();
+            let writes = response_split[3].parse().unwrap();
+            let reads = response_split[4].parse().unwrap();
+            let error = response_split[5].into();
+            UsbAnswer::Fail {
+                cylinder,
+                head,
+                writes,
+                reads,
+                error,
+            }
+        }
+        "WriteProtected" => UsbAnswer::WriteProtected,
+        _ => panic!("Unexpected answer from device: {}", response_text),
     }
 }

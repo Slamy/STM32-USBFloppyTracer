@@ -1,4 +1,5 @@
 use crate::rawtrack::{RawImage, RawTrack};
+use anyhow::{ensure, Context};
 use std::fs::{self, File};
 use std::io::Read;
 use std::slice::ChunksExact;
@@ -38,17 +39,19 @@ where
 pub fn generate_track(
     tracknum: u8,
     sectors: &mut ChunksExact<u8>,
-) -> (Vec<u8>, TrackConfiguration) {
+) -> anyhow::Result<(Vec<u8>, TrackConfiguration)> {
     let settings = get_track_settings(tracknum as usize);
     let mut trackbuf: Vec<u8> = Vec::new();
-    assert!(
+    ensure!(
         sectors.len() >= settings.sectors as usize,
         "Not enough sectors for this track"
     );
 
     for sector in 0..settings.sectors {
-        let sector_buffer = sectors.next().expect("Not enough sectors for this track");
-        assert!(sector_buffer.len() == BYTES_PER_SECTOR);
+        let sector_buffer = sectors
+            .next()
+            .context("Not enough sectors for this track")?;
+        ensure!(sector_buffer.len() == BYTES_PER_SECTOR);
 
         let mut col = BitStreamCollector::new(|byte| trackbuf.push(byte));
 
@@ -98,30 +101,29 @@ pub fn generate_track(
             col.feed_raw(0x55);
         }
     }
-    (trackbuf, settings)
+    Ok((trackbuf, settings))
 }
 
-#[must_use]
-pub fn parse_d64_image(path: &str) -> RawImage {
+pub fn parse_d64_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading D64 from {path} ...");
 
-    let mut file = File::open(path).expect("no file found");
-    let metadata = fs::metadata(path).expect("unable to read metadata");
+    let mut file = File::open(path)?;
+    let metadata = fs::metadata(path)?;
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
+    let bytes_read = file.read(whole_file_buffer.as_mut())?;
+    ensure!(bytes_read == metadata.len() as usize);
 
-    assert_eq!(metadata.len() as u32, 174_848, "D64 image has wrong size");
+    ensure!(metadata.len() as u32 == 174_848, "D64 image has wrong size");
 
     let mut tracks: Vec<RawTrack> = Vec::new();
     let mut sectors = whole_file_buffer.chunks_exact(BYTES_PER_SECTOR);
-    assert_eq!(sectors.len(), SECTORS_TOTAL);
+    ensure!(sectors.len() == SECTORS_TOTAL);
 
     for src_cylinder in 0..CYLINDERS {
         let tracknum = src_cylinder + 1;
 
-        let (trackbuf, settings) = generate_track(tracknum, &mut sectors);
+        let (trackbuf, settings) = generate_track(tracknum, &mut sectors)?;
 
         let densitymap = vec![DensityMapEntry {
             number_of_cellbytes: trackbuf.len(),
@@ -137,9 +139,9 @@ pub fn parse_d64_image(path: &str) -> RawImage {
         ));
     }
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch5_25,
         density: util::Density::SingleDouble,
-    }
+    })
 }

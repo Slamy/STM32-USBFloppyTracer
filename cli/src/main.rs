@@ -1,32 +1,20 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
 #![feature(let_chains)]
-
-use crate::track_parser::read_first_track_discover_format;
-use crate::usb_commands::{wait_for_answer, wait_for_last_answer, write_raw_track};
-use image_reader::parse_image;
+use anyhow::{bail, ensure, Ok};
+use clap::Parser;
 use pretty_hex::{HexConfig, PrettyHex};
-use rawtrack::{RawImage, TrackFilter};
 use rusb::{Context, DeviceHandle};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process::exit;
-use track_parser::read_tracks_to_diskimage;
-use usb_commands::configure_device;
-use usb_device::{clear_buffers, init_usb};
+use tool::image_reader::parse_image;
+use tool::rawtrack::{RawImage, TrackFilter};
+use tool::track_parser::read_first_track_discover_format;
+use tool::track_parser::read_tracks_to_diskimage;
+use tool::usb_commands::configure_device;
+use tool::usb_commands::{wait_for_answer, write_raw_track};
+use tool::usb_device::{clear_buffers, init_usb};
+use tool::write_precompensation::{calibration, WritePrecompDb};
 use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
-use write_precompensation::{calibration, WritePrecompDb};
-
-pub mod image_reader;
-pub mod track_parser;
-
-pub mod rawtrack;
-pub mod usb_commands;
-pub mod usb_device;
-pub mod write_precompensation;
-
-use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(author, about, long_about = None)]
@@ -63,22 +51,73 @@ struct Args {
     flippy: Option<u32>,
 }
 
-fn write_and_verify_image(usb_handles: &(DeviceHandle<Context>, u8, u8), image: &RawImage) {
-    let write_iterator = image.tracks.iter();
+fn write_and_verify_image(
+    usb_handles: &(DeviceHandle<Context>, u8, u8),
+    image: &RawImage,
+) -> Result<(), anyhow::Error> {
+    let mut write_iterator = image.tracks.iter();
     let mut verify_iterator = image.tracks.iter();
 
-    for write_track in write_iterator {
-        write_raw_track(usb_handles, write_track);
-        wait_for_answer(usb_handles, &mut verify_iterator);
+    let mut expected_to_verify = verify_iterator.next();
+
+    loop {
+        if let Some(write_track) = write_iterator.next() {
+            write_raw_track(usb_handles, write_track);
+        } else {
+            println!("All tracks written. Wait for remaining verifications!");
+        }
+
+        loop {
+            match wait_for_answer(usb_handles) {
+                tool::usb_commands::UsbAnswer::WrittenAndVerified {
+                    cylinder,
+                    head,
+                    writes,
+                    reads,
+                    max_err,
+                    write_precomp,
+                } => {
+                    println!(
+                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
+                    cylinder,
+                head,
+                writes,
+                reads,
+                max_err,
+                write_precomp,
+                );
+
+                    if let Some(track) = expected_to_verify {
+                        ensure!(track.cylinder == cylinder);
+                        ensure!(track.head == head);
+                    }
+                    expected_to_verify = verify_iterator.next();
+                    if expected_to_verify.is_none() {
+                        println!("--- Disk Image written and verified! ---");
+                        return Ok(());
+                    }
+                }
+                tool::usb_commands::UsbAnswer::Fail {
+                    cylinder,
+                    head,
+                    writes,
+                    reads,
+                    error,
+                } => bail!(
+                    "Failed writing track {} head {} - num_writes:{}, num_reads:{} error:{}",
+                    cylinder,
+                    head,
+                    writes,
+                    reads,
+                    error,
+                ),
+                tool::usb_commands::UsbAnswer::GotCmd => {
+                    break;
+                }
+                tool::usb_commands::UsbAnswer::WriteProtected => bail!("Disk is write protected!"),
+            }
+        }
     }
-
-    println!("All tracks written. Wait for remaining verifications!");
-
-    for verify_track in verify_iterator {
-        wait_for_last_answer(usb_handles, verify_track);
-    }
-
-    println!("--- Disk Image written and verified! ---");
 }
 
 fn write_debug_text_file(path: &str, image: &RawImage) {
@@ -147,7 +186,7 @@ fn main() {
 
         // before the make contact to the USB device, we shall read the image first
         // to be sure that it is writeable.
-        let mut image = parse_image(&cli.filepath);
+        let mut image = parse_image(&cli.filepath).unwrap();
         let rpm = match image.disk_type {
             util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
             util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
@@ -223,7 +262,7 @@ fn main() {
         let track_filter = cli.track_filter;
         let track_filter = track_filter.map(|f| TrackFilter::new(&f));
 
-        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive);
+        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive).unwrap();
     } else {
         let image = image.unwrap();
 
@@ -237,7 +276,7 @@ fn main() {
         if cli.wprecomp_calib {
             calibration(&usb_handles, image);
         } else {
-            write_and_verify_image(&usb_handles, &image);
+            write_and_verify_image(&usb_handles, &image).unwrap();
         }
     }
 }

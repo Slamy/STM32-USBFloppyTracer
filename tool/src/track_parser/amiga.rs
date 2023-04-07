@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use util::{
     duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
@@ -55,7 +55,7 @@ impl TrackParser for AmigaTrackParser {
     }
 
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
-        let expected_track_number = self.expected_track_number.expect("Program flow error");
+        let expected_track_number = self.expected_track_number.context(program_flow_error!())?;
         let cellsize_2micros = 168;
         let mut mfm_words: Vec<RawMfmWord> = Vec::new();
         let mut mfmd = MfmDataSeperator::new(|f| mfm_words.push(f));
@@ -240,7 +240,7 @@ mod tests {
         let mut sectors = buffer.chunks_exact(BYTES_PER_SECTOR);
         assert_eq!(sectors.len(), 11);
 
-        let trackbuf = generate_track(30, 1, &mut sectors);
+        let trackbuf = generate_track(30, 1, &mut sectors).unwrap();
         let mut pulse_data = Vec::new();
         let mut pulse_generator = FluxPulseGenerator::new(|f| pulse_data.push(f.0 as u8), 168 >> 3);
         for i in trackbuf {

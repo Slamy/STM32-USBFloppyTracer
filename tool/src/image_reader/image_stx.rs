@@ -4,6 +4,7 @@ use super::image_iso::{
 };
 use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 use crate::rawtrack::{RawImage, RawTrack};
+use anyhow::{ensure, Context};
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Cursor;
@@ -143,36 +144,35 @@ fn total_number_raw_bytes_deviation_map(deviation_map: &[SectorTimingDeviation])
 const SECTOR_DESCRIPTOR_SIZE: usize = 16;
 const TRACK_DESCRIPTOR_SIZE: usize = 16;
 
-#[must_use]
-pub fn parse_stx_image(path: &str) -> RawImage {
+pub fn parse_stx_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading STX from {path} ...");
 
-    let mut f = File::open(path).expect("no file found");
-    let metadata = fs::metadata(path).expect("unable to read metadata");
+    let mut f = File::open(path)?;
+    let metadata = fs::metadata(path)?;
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = f.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
+    let bytes_read = f.read(whole_file_buffer.as_mut())?;
+    ensure!(bytes_read == metadata.len() as usize);
 
     let file_hash = md5::compute(&whole_file_buffer);
     let file_hash_str = format!("{file_hash:x}");
 
-    assert!(
-        b"RSY\0".eq(&whole_file_buffer[0..4]),
+    ensure!(
+        b"RSY\0".eq(&ensure_index!(whole_file_buffer[0..4])),
         "Is this really an STX / Pasti file?"
     );
 
     // --- Reading File Descriptor ---
-    let mut file_desc_reader = Cursor::new(&whole_file_buffer[4..]);
+    let mut file_desc_reader = Cursor::new(&ensure_index!(whole_file_buffer[4..]));
 
-    let version = file_desc_reader.read_u16::<LittleEndian>().unwrap();
-    let _tool = file_desc_reader.read_u16::<LittleEndian>().unwrap();
-    let _reserved1 = file_desc_reader.read_u16::<LittleEndian>().unwrap();
-    let track_count = file_desc_reader.read_u8().unwrap();
-    let revision = file_desc_reader.read_u8().unwrap();
-    let _reserved2 = file_desc_reader.read_u32::<LittleEndian>().unwrap();
+    let version = file_desc_reader.read_u16::<LittleEndian>()?;
+    let _tool = file_desc_reader.read_u16::<LittleEndian>()?;
+    let _reserved1 = file_desc_reader.read_u16::<LittleEndian>()?;
+    let track_count = file_desc_reader.read_u8()?;
+    let revision = file_desc_reader.read_u8()?;
+    let _reserved2 = file_desc_reader.read_u32::<LittleEndian>()?;
 
-    assert_eq!(version, 3, "Only Pasti version 3 is supported!");
+    ensure!(version == 3, "Only Pasti version 3 is supported!");
     println!("Number of tracks {track_count}, File Revision {revision}");
 
     // After the File Descriptor follows the track records
@@ -187,7 +187,7 @@ pub fn parse_stx_image(path: &str) -> RawImage {
             current_track_record_position,
             &file_hash_str,
             revision,
-        );
+        )?;
 
         if let Some(track) = optional_track {
             tracks.push(track);
@@ -198,17 +198,17 @@ pub fn parse_stx_image(path: &str) -> RawImage {
 
     tracks.sort_by_key(|a| a.cylinder);
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch3_5,
         density: Density::SingleDouble,
-    }
+    })
 }
 
 fn read_sector_descriptors(
     sector_count: usize,
     track_record_reader: &mut Cursor<&[u8]>,
-) -> (Vec<StxSector>, usize) {
+) -> anyhow::Result<(Vec<StxSector>, usize)> {
     // We could process the sector descriptors during the reading process.
     // But if we store them first and use them later, we can perform
     // post processing tasks. For example we can change the order or drop sectors.
@@ -217,18 +217,18 @@ fn read_sector_descriptors(
 
     for _ in 0..sector_count {
         // Read a Sector Descriptor
-        let data_offset = track_record_reader.read_u32::<LittleEndian>().unwrap() as usize;
-        let bit_position = track_record_reader.read_u16::<LittleEndian>().unwrap() as usize;
-        let read_time = u32::from(track_record_reader.read_u16::<LittleEndian>().unwrap());
+        let data_offset = track_record_reader.read_u32::<LittleEndian>()? as usize;
+        let bit_position = track_record_reader.read_u16::<LittleEndian>()? as usize;
+        let read_time = u32::from(track_record_reader.read_u16::<LittleEndian>()?);
 
-        let idam_track = track_record_reader.read_u8().unwrap();
-        let idam_head = track_record_reader.read_u8().unwrap();
-        let idam_sector = track_record_reader.read_u8().unwrap();
-        let idam_size = track_record_reader.read_u8().unwrap();
-        let idam_crc = track_record_reader.read_u16::<BigEndian>().unwrap();
+        let idam_track = track_record_reader.read_u8()?;
+        let idam_head = track_record_reader.read_u8()?;
+        let idam_sector = track_record_reader.read_u8()?;
+        let idam_size = track_record_reader.read_u8()?;
+        let idam_crc = track_record_reader.read_u16::<BigEndian>()?;
 
-        let fdc_flags = track_record_reader.read_u8().unwrap();
-        let _reserved = track_record_reader.read_u8().unwrap();
+        let fdc_flags = track_record_reader.read_u8()?;
+        let _reserved = track_record_reader.read_u8()?;
         let sector_size = 128 << idam_size;
 
         if (fdc_flags & FDC_FLAG_INTRA_SECTOR_BIT_WIDTH_VARIATION) != 0 {
@@ -236,9 +236,9 @@ fn read_sector_descriptors(
             timing_data_size += sector_size / 8;
         }
 
-        assert!(idam_head < 2);
+        ensure!(idam_head < 2);
 
-        assert_eq!(fdc_flags & (1 << 5), 0, "Deleted data not yet supported");
+        ensure!(fdc_flags & (1 << 5) == 0, "Deleted data not yet supported");
 
         sectors.push(StxSector {
             data_offset,
@@ -260,21 +260,20 @@ fn read_sector_descriptors(
     // to finish in one sitting.
     sectors.sort_by_key(|a| a.bit_position);
 
-    (sectors, timing_data_size)
+    Ok((sectors, timing_data_size))
 }
 
-fn read_timing_record(optional_timing_record: &[u8]) -> Vec<f64> {
+fn read_timing_record(optional_timing_record: &[u8]) -> anyhow::Result<Vec<f64>> {
     println!("timing sector {optional_timing_record:x?}");
 
     let mut timing_record_reader = Cursor::new(&optional_timing_record);
-    let flags = timing_record_reader.read_u16::<LittleEndian>().unwrap();
-    let timing_record_size = timing_record_reader.read_u16::<LittleEndian>().unwrap() as usize;
+    let flags = timing_record_reader.read_u16::<LittleEndian>()?;
+    let timing_record_size = timing_record_reader.read_u16::<LittleEndian>()? as usize;
     let timing_data_size = timing_record_size - 4;
 
-    assert_eq!(flags, 5, "Unexpected flags in timing descriptor");
-    assert_eq!(
-        timing_record_size,
-        optional_timing_record.len(),
+    ensure!(flags == 5, "Unexpected flags in timing descriptor");
+    ensure!(
+        timing_record_size == optional_timing_record.len(),
         "Timing record sizes don't match!"
     );
 
@@ -282,19 +281,19 @@ fn read_timing_record(optional_timing_record: &[u8]) -> Vec<f64> {
     for _ in 0..timing_data_size / 2 {
         // the timing value is defined as the microseconds *4 it takes to read 16 data bytes
         // the nominal value is 128, which is 512 microseconds (16 * microseconds per data byte)
-        let timing_value = timing_record_reader.read_u16::<BigEndian>().unwrap();
+        let timing_value = timing_record_reader.read_u16::<BigEndian>()?;
         let cellsize_in_seconds = 1e-6 * f64::from(timing_value) / 64.0;
         //let raw_cellsize = (cellsize_microseconds * 84.0).round() as u16;
         timing_data.push(cellsize_in_seconds);
     }
 
     println!("{} {:?}", timing_data.len(), timing_data);
-    timing_data
+    Ok(timing_data)
 }
 
 fn convert_timing_deviation_to_densitymap(
     mut deviation_map: Vec<SectorTimingDeviation>,
-) -> DensityMap {
+) -> anyhow::Result<DensityMap> {
     // now the deviation map should have the same number of raw bytes as the track buffer contains.
     let deviation_map_total_time: f64 = deviation_map
         .iter()
@@ -309,7 +308,7 @@ fn convert_timing_deviation_to_densitymap(
         // The reason for this is that the read time doesn't contain the gaps.
 
         let correction_factor = one_rotation_in_seconds / deviation_map_total_time;
-        assert!(
+        ensure!(
             correction_factor > 0.99,
             "Correction factor {} not plausible",
             correction_factor
@@ -330,7 +329,7 @@ fn convert_timing_deviation_to_densitymap(
         })
         .collect();
 
-    reduce_densitymap(densitymap)
+    Ok(reduce_densitymap(densitymap))
 }
 
 fn process_track_record(
@@ -338,18 +337,21 @@ fn process_track_record(
     current_track_record_position: usize,
     file_hash_str: &str,
     revision: u8,
-) -> (Option<RawTrack>, usize) {
+) -> anyhow::Result<(Option<RawTrack>, usize)> {
     let mut has_non_flux_reversal_area = false;
 
     // Read Track Descriptor
-    let mut track_record_reader = Cursor::new(&whole_file_buffer[current_track_record_position..]);
-    let record_size = track_record_reader.read_u32::<LittleEndian>().unwrap() as usize;
-    let fuzzy_count = track_record_reader.read_u32::<LittleEndian>().unwrap() as usize;
-    let sector_count = track_record_reader.read_u16::<LittleEndian>().unwrap() as usize;
-    let track_flags = track_record_reader.read_u16::<LittleEndian>().unwrap();
-    let track_length = track_record_reader.read_u16::<LittleEndian>().unwrap() as usize;
-    let track_number = track_record_reader.read_u8().unwrap();
-    let _track_type = track_record_reader.read_u8().unwrap();
+    let mut track_record_reader = Cursor::new(&ensure_index!(
+        whole_file_buffer[current_track_record_position..]
+    ));
+
+    let record_size = track_record_reader.read_u32::<LittleEndian>()? as usize;
+    let fuzzy_count = track_record_reader.read_u32::<LittleEndian>()? as usize;
+    let sector_count = track_record_reader.read_u16::<LittleEndian>()? as usize;
+    let track_flags = track_record_reader.read_u16::<LittleEndian>()?;
+    let track_length = track_record_reader.read_u16::<LittleEndian>()? as usize;
+    let track_number = track_record_reader.read_u8()?;
+    let _track_type = track_record_reader.read_u8()?;
 
     let optional_fuzzy_mask_start = current_track_record_position
         + TRACK_DESCRIPTOR_SIZE
@@ -366,11 +368,11 @@ fn process_track_record(
     let head = track_number >> 7;
 
     let (sectors, timing_data_size) =
-        read_sector_descriptors(sector_count, &mut track_record_reader);
+        read_sector_descriptors(sector_count, &mut track_record_reader)?;
 
     let optional_timing_record_size = if timing_data_size > 0 {
-        assert_eq!(
-            revision, 2,
+        ensure!(
+            revision == 2,
             "Revision != 2 is not supported with intra sector bit width variation!"
         );
 
@@ -380,18 +382,20 @@ fn process_track_record(
     };
 
     let track_data_end = next_track_record_offset - optional_timing_record_size;
-    let track_data = &whole_file_buffer[track_data_start..track_data_end];
+    let track_data = &ensure_index!(whole_file_buffer[track_data_start..track_data_end]);
 
     if fuzzy_count > 0 {
-        let _fuzzy_mask = &whole_file_buffer[optional_fuzzy_mask_start..track_data_start];
+        let _fuzzy_mask =
+            &ensure_index!(whole_file_buffer[optional_fuzzy_mask_start..track_data_start]);
         // Still unusued
     }
 
     let optional_timing_data = if optional_timing_record_size > 0 {
-        let optional_timing_record = &whole_file_buffer[track_data_end..next_track_record_offset];
+        let optional_timing_record =
+            &ensure_index!(whole_file_buffer[track_data_end..next_track_record_offset]);
 
-        let timing_data = read_timing_record(optional_timing_record);
-        assert_eq!(timing_data.len() * 2, timing_data_size);
+        let timing_data = read_timing_record(optional_timing_record)?;
+        ensure!(timing_data.len() * 2 == timing_data_size);
         Some(timing_data)
     } else {
         None
@@ -401,25 +405,22 @@ fn process_track_record(
     // to the WD1772. We don't really need it as it only contains the data bits and a reconstruction
     // of flux signals is impossible with this.
     if (track_flags & TRK_IMAGE) != 0 {
-        let mut track_image_header_reader = Cursor::new(&whole_file_buffer[track_data_start..]);
+        let mut track_image_header_reader =
+            Cursor::new(&ensure_index!(whole_file_buffer[track_data_start..]));
 
         let (_first_sync_offset, track_image_start) = if (track_flags & TRK_SYNC) == 0 {
             (0, 2)
         } else {
             (
-                track_image_header_reader
-                    .read_u16::<LittleEndian>()
-                    .unwrap() as usize,
+                track_image_header_reader.read_u16::<LittleEndian>()? as usize,
                 4,
             )
         };
 
-        let track_image_size = track_image_header_reader
-            .read_u16::<LittleEndian>()
-            .unwrap() as usize;
+        let track_image_size = track_image_header_reader.read_u16::<LittleEndian>()? as usize;
 
         let _track_image_content_data =
-            &track_data[track_image_start..(track_image_start + track_image_size)];
+            &ensure_index!(track_data[track_image_start..(track_image_start + track_image_size)]);
 
         // I had the idea that this data can be used to reconstruct a raw track from this.
         // But this is not possible because of
@@ -430,10 +431,10 @@ fn process_track_record(
 
     // If the sector count is 0, this is defined to be an empty or unformatted track.
     if sector_count == 0 {
-        return (None, next_track_record_offset);
+        return Ok((None, next_track_record_offset));
     }
 
-    assert!(
+    ensure!(
         (track_flags & TRK_SECT) != 0,
         "Having no sector descriptors is currently not supported."
     );
@@ -468,15 +469,14 @@ fn process_track_record(
         // The gap sizes are not part of the stx file. We are generating them on the fly
         // based on the bit position in the sector descriptor which can be transformed into
         // byte positions.
-        if byte_position_offset.is_none() {
-            if sectors.len() == 1 {
-                byte_position_offset = Some(0);
+        let byte_position_offset_value =
+            *byte_position_offset.get_or_insert(if sectors.len() == 1 {
+                0
             } else {
-                byte_position_offset = Some(sector.bit_position / 4);
-            }
-        }
+                sector.bit_position / 4
+            });
 
-        let mfm_word_position = sector.bit_position / 4 - byte_position_offset.unwrap();
+        let mfm_word_position = sector.bit_position / 4 - byte_position_offset_value;
         let dynamic_gap_size = (mfm_word_position as i32 - trackbuf.borrow().len() as i32) / 2;
 
         if dynamic_gap_size >= 0 {
@@ -493,8 +493,9 @@ fn process_track_record(
         if !custom_sector {
             // No special code required to fix this sector? Then do a normal ISO one.
 
-            let sector_data =
-                &track_data[sector.data_offset..(sector.data_offset + sector.sector_size)];
+            let sector_data = &ensure_index!(
+                track_data[sector.data_offset..(sector.data_offset + sector.sector_size)]
+            );
 
             // sector header preamble with 0x00
             generate_iso_gap(gap2_size, 0, &mut encoder);
@@ -528,7 +529,9 @@ fn process_track_record(
                 // TODO: This code was never tested.
                 // I'm unable to find an image which uses only this and nothing
                 // else abstract to protect itself.
-                let timing_data = optional_timing_data.as_ref().unwrap();
+                let timing_data = optional_timing_data
+                    .as_ref()
+                    .context(program_flow_error!())?;
 
                 let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
                 crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_DAM]);
@@ -536,7 +539,7 @@ fn process_track_record(
                 let crc16 = crc.get();
 
                 let sector_data_chunks = sector_data.chunks_exact(16);
-                assert_eq!(sector_data_chunks.len(), timing_data.len());
+                ensure!(sector_data_chunks.len() == timing_data.len());
 
                 sector_data_chunks.zip(timing_data.iter()).for_each(|f| {
                     f.0.iter().for_each(|byte| encoder.feed_encoded8(*byte));
@@ -577,7 +580,7 @@ fn process_track_record(
     let dynamic_gap5_size = (track_length * 2 - trackbuf.borrow().len()) / 2;
     generate_iso_gap(dynamic_gap5_size, 0x4e, &mut encoder);
 
-    assert!(
+    ensure!(
         track_length * 2 >= trackbuf.borrow().len(),
         "trackbuf too long!"
     );
@@ -585,11 +588,14 @@ fn process_track_record(
     // fill out remaining cells after ending the track.
     let raw_bytes_to_add =
         trackbuf.borrow().len() - total_number_raw_bytes_deviation_map(&deviation_map);
-    deviation_map.last_mut().unwrap().number_of_raw_bytes += raw_bytes_to_add;
+    deviation_map
+        .last_mut()
+        .context(program_flow_error!())?
+        .number_of_raw_bytes += raw_bytes_to_add;
 
-    let densitymap = convert_timing_deviation_to_densitymap(deviation_map);
+    let densitymap = convert_timing_deviation_to_densitymap(deviation_map)?;
 
-    assert!(!densitymap.is_empty());
+    ensure!(!densitymap.is_empty());
 
     let track = RawTrack::new_with_non_flux_reversal_area(
         u32::from(cylinder),
@@ -600,5 +606,5 @@ fn process_track_record(
         has_non_flux_reversal_area,
     );
 
-    (Some(track), next_track_record_offset)
+    Ok((Some(track), next_track_record_offset))
 }

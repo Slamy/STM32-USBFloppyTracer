@@ -2,26 +2,24 @@
 authors = ["Slamy <palmchen1000@web.de>"]
 edition = "2018"
 readme = "README.md"
-name = "usbfloppytracer"
+name = "tool"
 version = "0.1.0"
 
 [dependencies]
 byteorder = "1.4.3"
 cassette = "0.2.3"
-clap = { version = "4.0.27", features = ["derive"] }
 crc16 = "0.4.0"
 csv = "1.1.6"
 home = "0.5.4"
 md5 = "0.7.0"
 rusb = "0.9.1"
 util = { path = "../util" }
-pretty-hex = "0.3.0"
-rstest = "0.16.0"
+rstest = "0.17.0"
 anyhow = "1.0.68"
 chrono = "0.4.23"
 
 [build-dependencies]
-bindgen = "0.63.0"
+bindgen = "0.64.0"
 cmake = "0.1"
 
 [dev-dependencies]

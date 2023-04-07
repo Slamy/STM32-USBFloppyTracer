@@ -1,4 +1,5 @@
 use crate::rawtrack::{auto_cell_size, RawImage, RawTrack};
+use anyhow::{ensure, Context};
 use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Read;
@@ -8,13 +9,14 @@ const G64_SPEED_TABLE: [u32; 4] = [227, 245, 262, 280];
 
 // http://www.unusedino.de/ec64/technical/formats/g64.html
 
-fn u8_buf_to_u32_buf(byte_buffer: &[u8]) -> Vec<u32> {
+fn u8_buf_to_u32_buf(byte_buffer: &[u8]) -> anyhow::Result<Vec<u32>> {
     let u32_buffer: Vec<u32> = byte_buffer
         .chunks_exact(std::mem::size_of::<u32>())
-        .map(|f| u32::from_le_bytes(f.try_into().unwrap()))
+        .filter_map(|f| f.try_into().ok())
+        .map(u32::from_le_bytes)
         .collect();
 
-    u32_buffer
+    Ok(u32_buffer)
 }
 
 fn patch_cell_size(file_hash_str: &str, cyl: u8) -> Option<u32> {
@@ -41,23 +43,23 @@ fn patch_cell_size(file_hash_str: &str, cyl: u8) -> Option<u32> {
     }
 }
 
-fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
-    match (file_hash_str, cyl) {
+fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Option<Vec<u8>> {
+    let result = match (file_hash_str, cyl) {
         // Katakis Copy Protection Track is too long in this image.
         ("53c47c575d057181a1911e6653229324", 70) => {
-            let x: Vec<u8> = source[0..source.len() - 150].into();
+            let x: Vec<u8> = source.get(0..source.len() - 150)?.into();
             x
         }
         ("d2aa92ccf3531fc995e771be91a45241", 70) => {
-            let mut x: Vec<u8> = source[0..source.len() - 48].into();
-            x[0..0x22b].fill(0x55);
-            x[0x22b] = 0x57;
-            x[0x22c..0x2ac].fill(0xff);
+            let mut x: Vec<u8> = source.get(0..source.len() - 48)?.into();
+            x.get_mut(0..0x22b)?.fill(0x55);
+            *x.get_mut(0x22b)? = 0x57;
+            x.get_mut(0x22c..0x2ac)?.fill(0xff);
             x
         }
         ("406d29151e7001f6bfc7d95b7ade799d", 70) => {
-            let mut x: Vec<u8> = source[0..source.len() - 90].into();
-            x[0x22c..0x2ac].fill(0xff);
+            let mut x: Vec<u8> = source.get(0..source.len() - 90)?.into();
+            x.get_mut(0x22c..0x2ac)?.fill(0xff);
             x
         }
 
@@ -68,65 +70,65 @@ fn patch_trackdata(source: &[u8], file_hash_str: &str, cyl: u8) -> Vec<u8> {
 
         // "Great Giana Sisters" Copy Protection Track is too long in this image.
         ("c2334233136c523b9ec62beb8bea1e00", 70) => {
-            let x: Vec<u8> = source[0..source.len() - 1000].into();
+            let x: Vec<u8> = source.get(0..source.len() - 1000)?.into();
             x
         }
         ("c2334233136c523b9ec62beb8bea1e00", 72) => Vec::new(),
 
         _ => source.into(),
-    }
+    };
+
+    Some(result)
 }
 
-#[must_use]
-pub fn parse_g64_image(path: &str) -> RawImage {
+pub fn parse_g64_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading G64 from {path} ...");
 
-    let mut file = File::open(path).expect("no file found");
-    let metadata = fs::metadata(path).expect("unable to read metadata");
+    let mut file = File::open(path)?;
+    let metadata = fs::metadata(path)?;
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
+    let bytes_read = file.read(whole_file_buffer.as_mut())?;
+    ensure!(bytes_read == metadata.len() as usize);
 
     let file_hash = md5::compute(&whole_file_buffer);
     let file_hashstr = format!("{file_hash:x}");
 
     let (file_header_view, rest_of_file) = whole_file_buffer.split_at(12);
 
-    assert!(b"GCR-1541".eq(&file_header_view[0..8]));
-    let g64_version = file_header_view[8];
-    assert_eq!(g64_version, 0);
-    let number_of_tracks = file_header_view[9];
-    let _size_of_track = u16::from_le_bytes(file_header_view[10..12].try_into().unwrap());
+    ensure!(b"GCR-1541".eq(&ensure_index!(file_header_view[0..8])));
+    let g64_version = ensure_index!(file_header_view[8]);
+    ensure!(g64_version == 0);
+    let number_of_tracks = ensure_index!(file_header_view[9]);
+    let _size_of_track = u16::from_le_bytes(ensure_index!(file_header_view[10..12]).try_into()?);
 
     let (track_offsets_u8, rest_of_file) =
         rest_of_file.split_at(number_of_tracks as usize * std::mem::size_of::<u32>());
     let (speed_offsets_u8, _rest_of_file) =
         rest_of_file.split_at(number_of_tracks as usize * std::mem::size_of::<u32>());
 
-    let track_offsets = u8_buf_to_u32_buf(track_offsets_u8);
-    let speed_offsets = u8_buf_to_u32_buf(speed_offsets_u8);
+    let track_offsets = u8_buf_to_u32_buf(track_offsets_u8)?;
+    let speed_offsets = u8_buf_to_u32_buf(speed_offsets_u8)?;
 
     let mut tracks: Vec<RawTrack> = Vec::new();
 
     for track_index in 0..number_of_tracks {
-        let track_offset = track_offsets[track_index as usize] as usize;
-        let speed_offset = 3 - speed_offsets[track_index as usize] as usize;
+        let track_offset = ensure_index!(track_offsets[track_index as usize]) as usize;
+        let speed_offset = 3 - ensure_index!(speed_offsets[track_index as usize]) as usize;
 
-        let mut cellsize = G64_SPEED_TABLE[speed_offset];
+        let mut cellsize = ensure_index!(G64_SPEED_TABLE[speed_offset]);
 
         if track_offset > 0 {
             let trackdata_copy: Vec<u8>;
             {
                 // Don't let actual track size out! trackdata_copy shall solve that with its len
                 let actual_track_size = u16::from_le_bytes(
-                    whole_file_buffer[track_offset..track_offset + 2]
-                        .try_into()
-                        .unwrap(),
+                    ensure_index!(whole_file_buffer[track_offset..track_offset + 2]).try_into()?,
                 ) as usize;
 
-                let trackdata =
-                    &whole_file_buffer[track_offset + 2..track_offset + actual_track_size + 2];
+                let trackdata = &ensure_index!(
+                    whole_file_buffer[track_offset + 2..track_offset + actual_track_size + 2]
+                );
 
                 if trackdata.iter().all(|f| *f == 0) {
                     println!("Track {track_index} is all zero? Remove it...",);
@@ -139,7 +141,8 @@ pub fn parse_g64_image(path: &str) -> RawImage {
                     continue;
                 }
 
-                trackdata_copy = patch_trackdata(trackdata, &file_hashstr, track_index);
+                trackdata_copy = patch_trackdata(trackdata, &file_hashstr, track_index)
+                    .context("Patch couldn't be applied!")?;
                 if trackdata_copy.is_empty() {
                     continue;
                 }
@@ -182,9 +185,9 @@ pub fn parse_g64_image(path: &str) -> RawImage {
         }
     }
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch5_25,
         density: util::Density::SingleDouble,
-    }
+    })
 }

@@ -5,6 +5,7 @@ use std::{
     io::Read,
 };
 
+use anyhow::{bail, ensure, Context};
 use byteorder::{LittleEndian, ReadBytesExt};
 use util::bitstream::BitStreamCollector;
 use util::mfm::MfmEncoder;
@@ -22,74 +23,76 @@ const FDC_765_STAT2_CONTROL_MARK: u8 = 1 << 6;
 // additional info https://simonowen.com/misc/extextdsk.txt
 // info about protections of games https://www.cpc-power.com/index.php?page=protection
 
-#[must_use]
-pub fn parse_dsk_image(path: &str) -> RawImage {
+pub fn parse_dsk_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading DSK from {path} ...");
 
-    let mut file = File::open(path).expect("no file found");
-    let metadata = fs::metadata(path).expect("unable to read metadata");
+    let mut file = File::open(path)?;
+    let metadata = fs::metadata(path)?;
 
     let mut whole_file_buffer: Vec<u8> = vec![0; metadata.len() as usize];
-    let bytes_read = file.read(whole_file_buffer.as_mut()).unwrap();
-    assert_eq!(bytes_read, metadata.len() as usize);
+    let bytes_read = file.read(whole_file_buffer.as_mut())?;
+    ensure!(bytes_read == metadata.len() as usize);
 
     let mut tracks: Vec<RawTrack> = Vec::new();
 
-    let disc_information_block = &whole_file_buffer[0..256];
+    let disc_information_block = &ensure_index!(whole_file_buffer[0..256]);
 
-    let type_str = std::str::from_utf8(&disc_information_block[0..34]).unwrap();
+    let type_str = std::str::from_utf8(&ensure_index!(disc_information_block[0..34]))?;
 
     // Check file type
     let extended = match type_str {
         "MV - CPCEMU Disk-File\r\nDisk-Info\r\n" => false,
         "EXTENDED CPC DSK File\r\nDisk-Info\r\n" => true,
-        _ => panic!("DSK File not in expected format!"),
+        _ => bail!("DSK File not in expected format!"),
     };
 
-    let number_of_cylinders = disc_information_block[0x30] as usize;
-    let number_of_sides = disc_information_block[0x31] as usize;
+    let number_of_cylinders = ensure_index!(disc_information_block[0x30]) as usize;
+    let number_of_sides = ensure_index!(disc_information_block[0x31]) as usize;
     let number_of_tracks = number_of_cylinders * number_of_sides;
 
     // The track size table only exists with the extended variant of this format
     let track_size_table = if extended {
-        Some(&disc_information_block[0x34..(0x34 + number_of_tracks)])
+        Some(&ensure_index!(
+            disc_information_block[0x34..(0x34 + number_of_tracks)]
+        ))
     } else {
         None
     };
     // Size of track can be safely ignored as it seems.
-    let _size_of_track = u16::from_le_bytes(disc_information_block[0x32..0x34].try_into().unwrap());
+    let _size_of_track =
+        u16::from_le_bytes(ensure_index!(disc_information_block[0x32..0x34]).try_into()?);
 
     // The first "Track Information Block" starts at offset 0x100 in file
     let mut file_offset = 0x100;
 
     for track_index in 0..number_of_tracks {
         // Get next "Track Information Block"
-        let track_information_block = &whole_file_buffer[file_offset..];
+        let track_information_block = &ensure_index!(whole_file_buffer[file_offset..]);
 
         // If a track has zero size, it is unformatted. Just skip it and continue
-        if let Some(table) = track_size_table && table[track_index] == 0 {
+        if let Some(table) = track_size_table && ensure_index!(table[track_index]) == 0 {
             // TODO better solution for this
             continue;
         }
 
         // Ensure that we are actually reading the data we expect here
-        assert!(b"Track-Info\r\n".eq(&track_information_block[0..12]));
+        ensure!(b"Track-Info\r\n".eq(&ensure_index!(track_information_block[0..12])));
 
-        let mut track_info_reader = Cursor::new(&track_information_block[0x10..]);
+        let mut track_info_reader = Cursor::new(&ensure_index!(track_information_block[0x10..]));
 
-        let track_number = track_info_reader.read_u8().unwrap();
-        let side_number = track_info_reader.read_u8().unwrap();
-        let _unused = track_info_reader.read_u16::<LittleEndian>().unwrap();
-        let _sector_size = track_info_reader.read_u8().unwrap();
-        let number_of_sectors = track_info_reader.read_u8().unwrap() as usize;
-        let _gap3_length = track_info_reader.read_u8().unwrap();
-        let _filler_byte = track_info_reader.read_u8().unwrap();
+        let track_number = track_info_reader.read_u8()?;
+        let side_number = track_info_reader.read_u8()?;
+        let _unused = track_info_reader.read_u16::<LittleEndian>()?;
+        let _sector_size = track_info_reader.read_u8()?;
+        let number_of_sectors = track_info_reader.read_u8()? as usize;
+        let _gap3_length = track_info_reader.read_u8()?;
+        let _filler_byte = track_info_reader.read_u8()?;
 
         let mut trackbuf: Vec<u8> = Vec::new();
         let mut collector = BitStreamCollector::new(|f| trackbuf.push(f));
         let mut encoder = MfmEncoder::new(|cell| collector.feed(cell));
 
-        let mut sector_info_reader = Cursor::new(&track_information_block[0x18..]);
+        let mut sector_info_reader = Cursor::new(&ensure_index!(track_information_block[0x18..]));
 
         // The first sector starts 0x100 byte after the header information
         file_offset += 0x100;
@@ -100,24 +103,25 @@ pub fn parse_dsk_image(path: &str) -> RawImage {
 
         for _ in 0..number_of_sectors {
             // Get Sector Info
-            let sector_track = sector_info_reader.read_u8().unwrap();
-            let sector_side = sector_info_reader.read_u8().unwrap();
-            let sector_id = sector_info_reader.read_u8().unwrap();
-            let sector_size = sector_info_reader.read_u8().unwrap();
-            let _fdc_status1 = sector_info_reader.read_u8().unwrap();
-            let fdc_status2 = sector_info_reader.read_u8().unwrap();
+            let sector_track = sector_info_reader.read_u8()?;
+            let sector_side = sector_info_reader.read_u8()?;
+            let sector_id = sector_info_reader.read_u8()?;
+            let sector_size = sector_info_reader.read_u8()?;
+            let _fdc_status1 = sector_info_reader.read_u8()?;
+            let fdc_status2 = sector_info_reader.read_u8()?;
 
             // In case of the extended format one additional field is added which stores
             // the actual size of the sector. This is important for Sectors of size 6
             // which are used for the Hexagon Protection
             let actual_data_length = if extended {
-                sector_info_reader.read_u16::<LittleEndian>().unwrap() as usize
+                sector_info_reader.read_u16::<LittleEndian>()? as usize
             } else {
-                sector_info_reader.read_u16::<LittleEndian>().unwrap(); //unused
+                sector_info_reader.read_u16::<LittleEndian>()?; //unused
                 128 << sector_size
             };
 
-            let sector_data = &whole_file_buffer[file_offset..(file_offset + actual_data_length)];
+            let sector_data =
+                &ensure_index!(whole_file_buffer[file_offset..(file_offset + actual_data_length)]);
 
             file_offset += actual_data_length;
 
@@ -168,9 +172,9 @@ pub fn parse_dsk_image(path: &str) -> RawImage {
         ));
     }
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch3_5,
         density: Density::SingleDouble,
-    }
+    })
 }

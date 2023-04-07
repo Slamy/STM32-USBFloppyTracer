@@ -1,5 +1,6 @@
 use crate::rawtrack::auto_cell_size;
 use crate::rawtrack::{RawImage, RawTrack};
+use anyhow::{ensure, Context};
 use std::cell::Cell;
 use std::ffi::CString;
 use std::mem::{self, MaybeUninit};
@@ -12,8 +13,8 @@ use util::{DensityMap, DensityMapEntry, PulseDuration, DRIVE_3_5_RPM};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
-    let mut current_val = *timebuf.first().unwrap();
+fn sparse_timebuf(timebuf: &[u32]) -> anyhow::Result<DensityMap> {
+    let mut current_val = *timebuf.first().context(program_flow_error!())?;
     let mut density_active_for: u32 = 0;
 
     let mut sparse_timebuf = Vec::new();
@@ -39,15 +40,12 @@ fn sparse_timebuf(timebuf: &[u32]) -> DensityMap {
     }
 
     // ensure that the lengths do match up!
-    assert_eq!(
-        timebuf.len(),
-        sparse_timebuf.iter().map(|f| f.number_of_cellbytes).sum()
-    );
+    ensure!(timebuf.len() == sparse_timebuf.iter().map(|f| f.number_of_cellbytes).sum());
 
-    sparse_timebuf
+    Ok(sparse_timebuf)
 }
 
-pub fn parse_ipf_image(path: &str) -> RawImage {
+pub fn parse_ipf_image(path: &str) -> anyhow::Result<RawImage> {
     println!("Reading IPF from {path} ...");
 
     let mut tracks: Vec<RawTrack> = Vec::new();
@@ -59,16 +57,16 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
     static caps_mutex: Mutex<Cell<()>> = Mutex::new(Cell::new(()));
     let caps_mutex_guard = caps_mutex.lock();
 
-    assert!(unsafe { CAPSInit() == 0 });
+    ensure!(unsafe { CAPSInit() == 0 });
 
     let id = unsafe { CAPSAddImage() };
 
     let mut cii = MaybeUninit::<CapsImageInfo>::uninit();
-    let cpath = CString::new(path).unwrap().into_raw();
-    assert!(unsafe { CAPSLockImage(id, cpath) == 0 });
+    let cpath = CString::new(path)?.into_raw();
+    ensure!(unsafe { CAPSLockImage(id, cpath) == 0 });
     let _ = unsafe { CString::from_raw(cpath) };
 
-    assert!(unsafe { CAPSGetImageInfo(cii.as_mut_ptr(), id) == 0 });
+    ensure!(unsafe { CAPSGetImageInfo(cii.as_mut_ptr(), id) == 0 });
 
     let cii = unsafe { cii.assume_init_mut() };
 
@@ -76,7 +74,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
         for head in cii.minhead..=cii.maxhead {
             let mut trackInf = MaybeUninit::<CapsTrackInfoT1>::uninit();
 
-            assert_eq!(
+            ensure!(
                 unsafe {
                     (*trackInf.as_mut_ptr()).type_ = 1;
                     CAPSLockTrack(
@@ -86,8 +84,7 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                         head,
                         FLAG_LOCK_TYPE | FLAG_LOCK_INDEX | FLAG_LOCK_DENVAR,
                     )
-                },
-                0
+                } == 0
             );
 
             let trackInf = unsafe { trackInf.assume_init_mut() };
@@ -107,26 +104,29 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                     trackbuf_orig.into()
                 } else if overlap < 10 {
                     // Some images have the overlap at the beginning
-                    trackbuf_orig[1 + overlap as usize..].into()
+                    ensure_index!(trackbuf_orig[1 + overlap as usize..]).into()
                 } else {
                     // We have some overlap at the end
-                    assert!(
+                    ensure!(
                         trackInf.tracklen >= overlap as u32,
                         "Overlap behind end of data?"
                     );
-                    trackbuf_orig[0..overlap as usize].into()
+                    ensure_index!(trackbuf_orig[0..overlap as usize]).into()
                 };
 
                 let auto_cell_size =
                     auto_cell_size(trackbuf.len() as u32, DRIVE_3_5_RPM).min(168.0_f64);
 
                 let mut densitymap;
+
+                // We have to allow this exception as Windows and Linux differ here
+                #[allow(clippy::unnecessary_cast)]
                 if trackInf.type_ == ctitVar as u32 {
                     println!(
                         "Variable Density Track {cylinder} {head} - Auto cell size {auto_cell_size} "
                     );
 
-                    assert!(trackInf.timelen == trackInf.tracklen);
+                    ensure!((trackInf.timelen == trackInf.tracklen));
 
                     let timebuf_orig = unsafe {
                         slice::from_raw_parts(trackInf.timebuf, trackInf.timelen as usize).to_vec()
@@ -137,17 +137,17 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
                         timebuf_orig
                     } else if overlap < 10 {
                         // Some images have the overlap at the beginning
-                        timebuf_orig[1 + overlap as usize..].into()
+                        ensure_index!(timebuf_orig[1 + overlap as usize..]).into()
                     } else {
                         // We have some overlap at the end
-                        assert!(
+                        ensure!(
                             trackInf.timelen >= overlap as u32,
                             "Overlap behind end of data?"
                         );
-                        timebuf_orig[0..overlap as usize].into()
+                        ensure_index!(timebuf_orig[0..overlap as usize]).into()
                     };
 
-                    densitymap = sparse_timebuf(&timebuf);
+                    densitymap = sparse_timebuf(&timebuf)?;
 
                     for d in &mut densitymap {
                         d.cell_size = PulseDuration(
@@ -185,23 +185,22 @@ pub fn parse_ipf_image(path: &str) -> RawImage {
 
     let smallest_cell_size = tracks
         .iter()
-        .map(|f| {
+        .filter_map(|f| {
             f.densitymap
                 .iter()
                 .map(|f| f.cell_size.0)
                 .reduce(std::cmp::Ord::min)
         })
-        .map(std::option::Option::unwrap)
         .reduce(std::cmp::Ord::min)
-        .unwrap();
+        .context(program_flow_error!())?;
     let smallest_cell_size_usec = f64::from(smallest_cell_size) / 84.0;
     println!(
         "Smallest cell size of this image is {smallest_cell_size} / {smallest_cell_size_usec:.2} usec"
     );
 
-    RawImage {
+    Ok(RawImage {
         tracks,
         disk_type: util::DiskType::Inch3_5,
         density: util::Density::SingleDouble,
-    }
+    })
 }
