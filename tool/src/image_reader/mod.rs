@@ -1,10 +1,3 @@
-#![warn(clippy::panic)]
-#![warn(clippy::expect_used)]
-#![warn(clippy::indexing_slicing)]
-#![warn(clippy::panic_in_result_fn)]
-#![warn(clippy::unwrap_in_result)]
-#![warn(clippy::unwrap_used)]
-
 use anyhow::{bail, ensure, Context};
 use std::{ffi::OsStr, path::Path};
 

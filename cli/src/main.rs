@@ -62,13 +62,13 @@ fn write_and_verify_image(
 
     loop {
         if let Some(write_track) = write_iterator.next() {
-            write_raw_track(usb_handles, write_track);
+            write_raw_track(usb_handles, write_track)?;
         } else {
             println!("All tracks written. Wait for remaining verifications!");
         }
 
         loop {
-            match wait_for_answer(usb_handles) {
+            match wait_for_answer(usb_handles)? {
                 tool::usb_commands::UsbAnswer::WrittenAndVerified {
                     cylinder,
                     head,
@@ -182,7 +182,7 @@ fn main() {
     let image = if cli.read {
         None
     } else {
-        let wprecomp_db = WritePrecompDb::new();
+        let wprecomp_db = WritePrecompDb::new().ok();
 
         // before the make contact to the USB device, we shall read the image first
         // to be sure that it is writeable.
@@ -193,7 +193,7 @@ fn main() {
         };
 
         if let Some(filter) = cli.track_filter.as_ref() {
-            let filter = TrackFilter::new(filter);
+            let filter = TrackFilter::new(filter).unwrap();
             image.filter_tracks(filter);
         }
 
@@ -227,8 +227,8 @@ fn main() {
     };
 
     // connect to USB
-    let usb_handles = init_usb().unwrap_or_else(|| {
-        println!("Unable to initialize the USB device!");
+    let usb_handles = init_usb().unwrap_or_else(|e| {
+        println!("Unable to initialize the USB device: {:?}", e);
         exit(1);
     });
 
@@ -262,7 +262,7 @@ fn main() {
         println!("Format is probably '{:?}'", possible_formats);
     } else if cli.read {
         let track_filter = cli.track_filter;
-        let track_filter = track_filter.map(|f| TrackFilter::new(&f));
+        let track_filter = track_filter.map(|f| TrackFilter::new(&f).unwrap());
 
         read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive).unwrap();
     } else {
@@ -273,10 +273,11 @@ fn main() {
             select_drive,
             image.density,
             index_sim_frequency,
-        );
+        )
+        .unwrap();
 
         if cli.wprecomp_calib {
-            calibration(&usb_handles, image);
+            calibration(&usb_handles, image).unwrap();
         } else {
             write_and_verify_image(&usb_handles, &image).unwrap();
         }

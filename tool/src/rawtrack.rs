@@ -1,14 +1,11 @@
 use core::panic;
-use std::{cell::RefCell, collections::VecDeque};
+use std::cell::RefCell;
 
+use anyhow::Context;
 use util::{
-    bitstream::to_bit_stream,
-    fluxpulse::FluxPulseGenerator,
-    mfm::{MfmDecoder, MfmWord, ISO_SYNC_BYTE},
-    Bit, Density, DensityMap, DiskType, Encoding, RawCellData, STM_TIMER_MHZ,
+    bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, Density, DensityMap, DiskType,
+    Encoding, RawCellData, STM_TIMER_MHZ,
 };
-
-use crate::image_reader::image_iso::{ISO_DAM, ISO_IDAM};
 
 pub struct RawImage {
     pub density: Density,
@@ -109,23 +106,27 @@ impl RawTrack {
         );
     }
 
-    pub fn check_writability(&self) {
+    pub fn check_writability(&self) -> bool {
+        let Some(first_cell_size) = self.densitymap.get(0) else {return false;};
+        let first_cell_size = first_cell_size.cell_size.0;
+
         let minimum_allowed_cell_size = match self.encoding {
             util::Encoding::GCR => {
                 // Abort this for GCR as currently every GCR stream is writable
                 // If pauses are too long, they will be filled up with weak bits.
                 // Pauses can't be too short for GCR as we are working with full cells
-                return;
+                return true;
             }
             // With MFM this is a different story as we are working with half cells.
             // The drive mechanism expects us to have at least one half cell pause
             // between the flux reversals. If this rule is not applied here,
             // the data we read bacl will be different.
-            util::Encoding::MFM => self.densitymap[0].cell_size.0 + 40,
+            util::Encoding::MFM => first_cell_size + 40,
         };
 
         let cell_data_parts = RawCellData::split_in_parts(&self.densitymap, &self.raw_data);
         let track_offset = RefCell::new(0);
+        let mut is_writable = true;
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
             |f| {
@@ -147,24 +148,29 @@ impl RawTrack {
                         current_track_offset - 5
                     };
 
-                    let impossible_data_position =
-                        &self.raw_data[start_view..current_track_offset + 5];
-                    println!("impossible_data_position {impossible_data_position:x?}");
+                    if let Some(impossible_data_position) =
+                        self.raw_data.get(start_view..current_track_offset + 5)
+                    {
+                        println!("impossible_data_position {impossible_data_position:x?}");
 
-                    for i in impossible_data_position.iter() {
-                        println!("{i:02x} {i:08b}");
+                        for i in impossible_data_position.iter() {
+                            println!("{i:02x} {i:08b}");
+                        }
+
+                        let zero_pos = self.raw_data.iter().position(|d| *d == 0);
+                        if let Some(zero_found) = zero_pos {
+                            println!("zero_found at {zero_found}. This track needs fixing.");
+                            println!("zero to end is {}", self.raw_data.len() - zero_found);
+                        }
+                    } else {
+                        println!("Unable to show position of impossible data");
                     }
 
-                    let zero_pos = self.raw_data.iter().position(|d| *d == 0);
-                    if let Some(zero_found) = zero_pos {
-                        println!("zero_found at {zero_found}. This track needs fixing.");
-                        println!("zero to end is {}", self.raw_data.len() - zero_found);
-                    }
-
-                    panic!("Too short pause between flux change: {}", f.0)
+                    println!("Too short pause between flux change: {}", f.0);
+                    is_writable = false;
                 }
             },
-            self.densitymap[0].cell_size.0 as u32,
+            first_cell_size as u32,
         );
 
         if matches!(self.encoding, util::Encoding::MFM) {
@@ -179,6 +185,8 @@ impl RawTrack {
                 to_bit_stream(*cell_byte, |bit| write_prod_fpg.feed(bit));
             }
         }
+
+        is_writable
     }
 }
 
@@ -190,85 +198,6 @@ pub fn auto_cell_size(tracklen: u32, rpm: f64) -> f64 {
     STM_TIMER_MHZ * microseconds_per_cell
 }
 
-pub fn print_iso_sector_data(trackdata: &[u8], idam_sector: u8) {
-    let queue = RefCell::new(VecDeque::new());
-    let mut mfmd = MfmDecoder::new(|f| queue.borrow_mut().push_front(f));
-
-    let mut data_iter = trackdata.iter();
-
-    let mut awaiting_dam = 0;
-    let mut sector_header = Vec::new();
-
-    loop {
-        while queue.borrow().len() < 3 {
-            to_bit_stream(*data_iter.next().unwrap(), |f| mfmd.feed(f));
-        }
-
-        awaiting_dam -= 1;
-
-        let mfm = queue.borrow_mut().pop_back().unwrap();
-
-        if matches!(mfm, MfmWord::SyncWord) {
-            let sync_type = queue.borrow_mut().pop_back().unwrap();
-            println!("{awaiting_dam} {sync_type:x?}");
-
-            if awaiting_dam > 0 && matches!(sync_type, MfmWord::Enc(ISO_DAM)) {
-                println!("We got our data!");
-                break;
-            }
-
-            if !matches!(sync_type, MfmWord::Enc(ISO_IDAM)) {
-                continue;
-            }
-
-            // Well we go a Sector Header. Now read and process it!
-            while queue.borrow().len() < 8 {
-                to_bit_stream(*data_iter.next().unwrap(), |f| mfmd.feed(f));
-            }
-
-            // Sector header
-            sector_header.clear();
-
-            for _ in 0..6 {
-                if let MfmWord::Enc(val) = queue.borrow_mut().pop_back().unwrap() {
-                    sector_header.push(val);
-                }
-            }
-            println!("{sector_header:x?}");
-
-            if sector_header[2] != idam_sector {
-                continue;
-            }
-
-            // Ok this is our sector!
-            let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
-            crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_IDAM]);
-            crc.update(&sector_header);
-            let crc16 = crc.get();
-            assert_eq!(crc16, 0);
-
-            // CRC is fine!
-            awaiting_dam = 40;
-            println!("This is our header!");
-        }
-    }
-
-    println!("{sector_header:x?}");
-    let sector_size = 128 << sector_header[3];
-    let mut sector_data = Vec::new();
-    mfmd.sync_detector_active = false;
-
-    while queue.borrow().len() < sector_size {
-        to_bit_stream(*data_iter.next().unwrap(), |f| mfmd.feed(f));
-    }
-
-    for _ in 0..sector_size {
-        let MfmWord::Enc(value) = queue.borrow_mut().pop_back().unwrap() else {panic!();};
-        sector_data.push(value);
-    }
-    println!("{sector_data:x?}");
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct TrackFilter {
     pub cyl_start: Option<u32>,
@@ -276,34 +205,49 @@ pub struct TrackFilter {
     pub head: Option<u32>,
 }
 impl TrackFilter {
-    fn from_track_split(track_split: &[&str], head: Option<u32>) -> Self {
-        if track_split.len() == 1 {
-            return Self {
-                cyl_start: track_split[0].parse().ok(),
-                cyl_end: track_split[0].parse().ok(),
-                head,
+    fn from_track_split(track_split: &[&str], head: Option<u32>) -> anyhow::Result<Self> {
+        let mut track_split_iter = track_split.iter();
+
+        if let Some(cyl_start) = track_split_iter.next() {
+            let cyl_start = cyl_start.parse().ok();
+
+            let cyl_end = if let Some(cyl_end) = track_split_iter.next() {
+                cyl_end.parse().ok()
+            } else {
+                cyl_start
             };
-        } else if track_split.len() == 2 {
-            return Self {
-                cyl_start: track_split[0].parse().ok(),
-                cyl_end: track_split[1].parse().ok(),
+
+            Ok(Self {
+                cyl_start,
+                cyl_end,
                 head,
-            };
+            })
+        } else {
+            Err(anyhow::anyhow!("Unexpected track filter parameter!"))
         }
-        panic!("Unexpected track filter parameter!")
     }
 
-    #[must_use]
-    pub fn new(param: &str) -> Self {
+    pub fn new(param: &str) -> anyhow::Result<Self> {
+        if param.is_empty() || param == "-" {
+            return Err(anyhow::anyhow!("Empty parameter!"));
+        }
+
         let head_split: Vec<_> = param.split(':').collect();
-        let track_split: Vec<&str> = head_split[0].split('-').collect();
+        let track_split: Vec<&str> = head_split
+            .first()
+            .context("Invalid argument")?
+            .split('-')
+            .collect();
 
         if head_split.len() == 1 {
             return Self::from_track_split(&track_split, None);
         } else if head_split.len() == 2 {
-            return Self::from_track_split(&track_split, head_split[1].parse().ok());
+            return Self::from_track_split(
+                &track_split,
+                head_split.get(1).context("Wont happen")?.parse().ok(),
+            );
         }
-        panic!("Unexpected track filter parameter!")
+        Err(anyhow::anyhow!("Unexpected track filter parameter!"))
     }
 }
 
@@ -313,34 +257,40 @@ mod tests {
 
     #[test]
     fn track_filter_test() {
-        let filter = TrackFilter::new("2-10");
+        let filter = TrackFilter::new("2-10").unwrap();
         assert_eq!(filter.cyl_end.unwrap(), 10);
         assert_eq!(filter.cyl_start.unwrap(), 2);
         assert!(filter.head.is_none());
 
-        let filter = TrackFilter::new("2-");
+        let filter = TrackFilter::new("2-").unwrap();
         assert!(filter.cyl_end.is_none());
         assert_eq!(filter.cyl_start.unwrap(), 2);
         assert!(filter.head.is_none());
 
-        let filter = TrackFilter::new("-8");
+        let filter = TrackFilter::new("-8").unwrap();
         assert!(filter.cyl_start.is_none());
         assert_eq!(filter.cyl_end.unwrap(), 8);
         assert!(filter.head.is_none());
 
-        let filter = TrackFilter::new("2-10:1");
+        let filter = TrackFilter::new("2-10:1").unwrap();
         assert_eq!(filter.cyl_end.unwrap(), 10);
         assert_eq!(filter.cyl_start.unwrap(), 2);
         assert_eq!(filter.head.unwrap(), 1);
 
-        let filter = TrackFilter::new("2-8:0");
+        let filter = TrackFilter::new("2-8:0").unwrap();
         assert_eq!(filter.cyl_end.unwrap(), 8);
         assert_eq!(filter.cyl_start.unwrap(), 2);
         assert_eq!(filter.head.unwrap(), 0);
 
-        let filter = TrackFilter::new("34");
+        let filter = TrackFilter::new("34").unwrap();
         assert_eq!(filter.cyl_end.unwrap(), 34);
         assert_eq!(filter.cyl_start.unwrap(), 34);
         assert!(filter.head.is_none());
+
+        let filter = TrackFilter::new("");
+        assert!(filter.is_err());
+
+        let filter = TrackFilter::new("-");
+        assert!(filter.is_err());
     }
 }

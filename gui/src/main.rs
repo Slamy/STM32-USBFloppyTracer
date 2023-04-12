@@ -303,10 +303,13 @@ impl UsbFloppyTracerWindow {
         let thread_handle: Option<JoinHandle<_>> = None;
         let usb_handle = init_usb();
 
-        if usb_handle.is_some() {
+        if usb_handle.is_ok() {
             status_text.set_value("Systems ready!");
         } else {
-            status_text.set_value("Failed to initialize USB device");
+            status_text.set_value(&format!(
+                "Failed to initialize USB device: {:?}",
+                usb_handle
+            ));
         }
 
         wind.show();
@@ -323,7 +326,7 @@ impl UsbFloppyTracerWindow {
             sender,
             maybe_image,
             thread_handle,
-            usb_handle,
+            usb_handle: usb_handle.ok(),
             status_text,
             button_write,
             tracklabels,
@@ -333,7 +336,7 @@ impl UsbFloppyTracerWindow {
 
     fn take_usb_handle(&mut self) -> anyhow::Result<(DeviceHandle<rusb::Context>, u8, u8)> {
         if self.usb_handle.is_none() {
-            self.usb_handle = init_usb().or(None);
+            self.usb_handle = Some(init_usb()?);
         }
         self.usb_handle
             .take()
@@ -470,7 +473,7 @@ impl UsbFloppyTracerWindow {
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
-                configure_device(&taken_usb_handle, selected_drive, taken_image.density, 0);
+                configure_device(&taken_usb_handle, selected_drive, taken_image.density, 0)?;
                 let sender = self.sender.clone();
 
                 self.button_stop.activate();
@@ -574,7 +577,7 @@ fn read_tracks_to_diskimage(
 
     let track_filter = track_parser.default_trackfilter();
     let duration_to_record = track_parser.duration_to_record();
-    configure_device(usb_handles, select_drive, track_parser.track_density(), 0);
+    configure_device(usb_handles, select_drive, track_parser.track_density(), 0)?;
 
     let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
     let mut cylinder_end = track_filter
@@ -651,7 +654,7 @@ fn write_and_verify_image(
     loop {
         if !atomic_stop.load(Relaxed) {
             if let Some(write_track) = write_iterator.next() {
-                write_raw_track(usb_handles, write_track);
+                write_raw_track(usb_handles, write_track)?;
                 last_written_track = Some(write_track);
             } else {
                 println!("All tracks written. Wait for remaining verifications!");
@@ -659,7 +662,7 @@ fn write_and_verify_image(
         }
 
         loop {
-            match wait_for_answer(usb_handles) {
+            match wait_for_answer(usb_handles)? {
                 tool::usb_commands::UsbAnswer::WrittenAndVerified {
                     cylinder,
                     head,

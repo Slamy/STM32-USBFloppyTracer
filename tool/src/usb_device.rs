@@ -1,14 +1,15 @@
 use std::time::Duration;
 
-use rusb::{Context, Device, DeviceDescriptor, DeviceHandle, Direction, TransferType, UsbContext};
+use anyhow::{anyhow, bail, Context};
+use rusb::{Device, DeviceDescriptor, DeviceHandle, Direction, TransferType, UsbContext};
 use util::{USB_PID, USB_VID};
 
 fn open_usb_device<T: UsbContext>(
     context: &mut T,
     vid: u16,
     pid: u16,
-) -> Option<(Device<T>, DeviceDescriptor, DeviceHandle<T>)> {
-    let devices = context.devices().ok()?;
+) -> anyhow::Result<(Device<T>, DeviceDescriptor, DeviceHandle<T>)> {
+    let devices = context.devices()?;
 
     for device in devices.iter() {
         let device_desc = match device.device_descriptor() {
@@ -21,17 +22,17 @@ fn open_usb_device<T: UsbContext>(
         if device_desc.vendor_id() == vid && device_desc.product_id() == pid {
             match device.open() {
                 Ok(handle) => {
-                    return Some((device, device_desc, handle));
+                    return Ok((device, device_desc, handle));
                 }
-                Err(e) => panic!("Device found but failed to open: {}", e),
+                Err(e) => bail!("Device found but failed to open: {}", e),
             }
         }
     }
 
-    None
+    Err(anyhow!("Unable to find USB Floppy Tracer"))
 }
 
-pub fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
+pub fn clear_buffers(handles: &(DeviceHandle<rusb::Context>, u8, u8)) {
     let (handle, endpoint_in, _endpoint_out) = handles;
     let timeout = Duration::from_millis(10);
     let mut in_buf = [0u8; 64];
@@ -44,16 +45,15 @@ pub fn clear_buffers(handles: &(DeviceHandle<Context>, u8, u8)) {
     }
 }
 
-#[must_use]
-pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {
-    let mut context = Context::new().unwrap();
+pub fn init_usb() -> anyhow::Result<(DeviceHandle<rusb::Context>, u8, u8)> {
+    let mut context = rusb::Context::new()?;
 
     let (device, _device_desc, mut handle) = open_usb_device(&mut context, USB_VID, USB_PID)?;
 
     // This seems to be optional for Linux but is required for Windows
-    handle.claim_interface(0).unwrap();
+    handle.claim_interface(0)?;
 
-    let config_desc = device.config_descriptor(0).unwrap();
+    let config_desc = device.config_descriptor(0)?;
 
     let mut endpoint_in_option: Option<u8> = None;
     let mut endpoint_out_option: Option<u8> = None;
@@ -76,8 +76,8 @@ pub fn init_usb() -> Option<(DeviceHandle<Context>, u8, u8)> {
         }
     }
 
-    let endpoint_in = endpoint_in_option.unwrap();
-    let endpoint_out: u8 = endpoint_out_option.unwrap();
+    let endpoint_in = endpoint_in_option.context("Endpoint In missing")?;
+    let endpoint_out: u8 = endpoint_out_option.context("Endpoint Out missing")?;
 
-    Some((handle, endpoint_in, endpoint_out))
+    Ok((handle, endpoint_in, endpoint_out))
 }

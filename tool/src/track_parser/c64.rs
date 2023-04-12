@@ -62,7 +62,7 @@ impl TrackParser for C64TrackParser {
     }
 
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
-        let track_config = self.track_config.as_ref().unwrap();
+        let track_config = self.track_config.as_ref().context("No track expected!")?;
 
         let mut gcr_results = Vec::new();
         let mut decoder = GcrDecoder::new(|f| gcr_results.push(f));
@@ -103,7 +103,7 @@ impl TrackParser for C64TrackParser {
                             .iter()
                             .copied()
                             .reduce(|accu, input| accu ^ input)
-                            .unwrap();
+                            .context("Unable to calculate checksum")?;
 
                         if sector_header.len() == 5 && checksum == 0 {
                             // Did we get this sector yet?
@@ -112,14 +112,19 @@ impl TrackParser for C64TrackParser {
                                 .as_mut()
                                 .context(program_flow_error!())?;
 
+                            let sector_index = *sector_header.get(1).context("Header too short")?;
+
                             if !collected_sectors
                                 .iter()
-                                .any(|f| f.index == u32::from(sector_header[1]))
+                                .any(|f| f.index == u32::from(sector_index))
                             {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_data_block = 20;
                             }
-                            ensure!(sector_header[2] as u32 == self.expected_track_number.unwrap());
+                            ensure!(
+                                *sector_header.get(2).context("Header too short")? as u32
+                                    == self.expected_track_number.context("No track selected!")?
+                            );
                         } else {
                             println!(
                                 "Checksum of sector {} header was wrong",
@@ -144,14 +149,17 @@ impl TrackParser for C64TrackParser {
                             .iter()
                             .copied()
                             .reduce(|accu, input| accu ^ input)
-                            .unwrap();
+                            .context("Unable to calculate checksum")?;
 
                         if checksum == 0 {
-                            let collected_sectors = self.collected_sectors.as_mut().unwrap();
+                            let collected_sectors = self
+                                .collected_sectors
+                                .as_mut()
+                                .context(program_flow_error!())?;
 
                             sector_data.resize(SECTOR_SIZE, 0); // remove checksum at the end
                             collected_sectors.push(CollectedSector {
-                                index: u32::from(sector_header[1]),
+                                index: u32::from(ensure_index!(sector_header[1])),
                                 payload: sector_data,
                             });
 
@@ -159,7 +167,10 @@ impl TrackParser for C64TrackParser {
                                 // Exit it after we got all expected sectors.
                             }
                         } else {
-                            println!("Checksum of sector {} data was wrong", sector_header[1]);
+                            println!(
+                                "Checksum of sector {} data was wrong",
+                                ensure_index!(sector_header[1])
+                            );
                         }
                     }
                     _ => {}
@@ -167,12 +178,21 @@ impl TrackParser for C64TrackParser {
             }
         }
 
-        ensure!(self.collected_sectors.as_ref().unwrap().len() == track_config.sectors as usize);
-        let collected_sectors = self.collected_sectors.take().unwrap();
+        ensure!(
+            self.collected_sectors
+                .as_ref()
+                .context(program_flow_error!())?
+                .len()
+                == track_config.sectors as usize
+        );
+        let collected_sectors = self
+            .collected_sectors
+            .take()
+            .context(program_flow_error!())?;
 
         Ok(concatenate_sectors(
             collected_sectors,
-            (self.expected_track_number.unwrap() - 1) << 1,
+            (self.expected_track_number.context("Program flow error")? - 1) << 1,
             0,
         ))
     }
@@ -236,8 +256,8 @@ mod tests {
         // Check parsed track is equal to data which was used to generate the track
         assert_eq!(buffer, result.payload);
         // just to be sure that we used pseudo random values
-        assert_eq!(result.payload[100], 152);
-        assert_eq!(result.payload[200], 126);
-        assert_eq!(result.payload[300], 83);
+        assert_eq!(*result.payload.get(100).unwrap(), 152);
+        assert_eq!(*result.payload.get(200).unwrap(), 126);
+        assert_eq!(*result.payload.get(300).unwrap(), 83);
     }
 }

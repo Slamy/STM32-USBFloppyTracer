@@ -2,6 +2,12 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![feature(let_chains)]
+#![warn(clippy::panic)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::indexing_slicing)]
+#![warn(clippy::panic_in_result_fn)]
+#![warn(clippy::unwrap_in_result)]
+#![warn(clippy::unwrap_used)]
 
 macro_rules! program_flow_error {
     () => {

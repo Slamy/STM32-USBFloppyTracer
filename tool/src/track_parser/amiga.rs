@@ -74,7 +74,10 @@ impl TrackParser for AmigaTrackParser {
                 match parse_amiga_sector(&mut iterator, expected_track_number) {
                     Ok(just_gotten_sector) => {
                         // Did we get this sector yet?
-                        let collected_sectors = self.collected_sectors.as_mut().unwrap();
+                        let collected_sectors = self
+                            .collected_sectors
+                            .as_mut()
+                            .context(program_flow_error!())?;
 
                         if !collected_sectors
                             .iter()
@@ -95,8 +98,17 @@ impl TrackParser for AmigaTrackParser {
             }
         }
 
-        ensure!(self.collected_sectors.as_ref().unwrap().len() == self.expected_sectors_per_track);
-        let collected_sectors = self.collected_sectors.take().unwrap();
+        ensure!(
+            self.collected_sectors
+                .as_ref()
+                .context(program_flow_error!())?
+                .len()
+                == self.expected_sectors_per_track
+        );
+        let collected_sectors = self
+            .collected_sectors
+            .take()
+            .context(program_flow_error!())?;
 
         Ok(concatenate_sectors(
             collected_sectors,
@@ -198,14 +210,14 @@ fn parse_amiga_sector<'a>(
         checksum ^= word;
         sector_data.extend_from_slice(&(word << 1).to_be_bytes())
     }
-    assert_eq!(sector_data.len(), 512);
+    ensure!(sector_data.len() == 512);
 
     // now get the even data
     for target in sector_data.chunks_mut(4) {
         let word = read_even_bits(iterator);
 
         checksum ^= word;
-        let target2: &mut [u8; 4] = target.try_into().unwrap();
+        let target2: &mut [u8; 4] = target.try_into().context("Program flow error")?;
         *target2 = (word | u32::from_be_bytes(*target2)).to_be_bytes();
     }
 
@@ -257,8 +269,8 @@ mod tests {
         // Check parsed track is equal to data which was used to generate the track
         assert_eq!(buffer, result.payload);
         // just to be sure that we used pseudo random values
-        assert_eq!(result.payload[100], 152);
-        assert_eq!(result.payload[200], 126);
-        assert_eq!(result.payload[300], 83);
+        assert_eq!(*result.payload.get(100).unwrap(), 152);
+        assert_eq!(*result.payload.get(200).unwrap(), 126);
+        assert_eq!(*result.payload.get(300).unwrap(), 83);
     }
 }

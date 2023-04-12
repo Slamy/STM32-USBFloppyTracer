@@ -5,7 +5,8 @@ use std::{
     time::Duration,
 };
 
-use rusb::{Context, DeviceHandle};
+use anyhow::{bail, Context};
+use rusb::DeviceHandle;
 use util::Density;
 
 use crate::{
@@ -13,7 +14,10 @@ use crate::{
     usb_commands::write_raw_track,
 };
 
-pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: RawImage) {
+pub fn calibration(
+    usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
+    mut image: RawImage,
+) -> anyhow::Result<()> {
     println!("tracks len {}", image.tracks.len());
     println!("Disk Type {:?} {:?}", image.density, image.disk_type);
 
@@ -25,12 +29,14 @@ pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: Raw
         (Density::High, util::DiskType::Inch3_5) => 12,
         (Density::SingleDouble, util::DiskType::Inch3_5) => 22,
         (Density::SingleDouble, util::DiskType::Inch5_25) => 14,
-        (_, _) => panic!("Unsupported for write precompensation!"),
+        (_, _) => bail!("Unsupported for write precompensation!"),
     };
 
     let mut results: HashMap<usize, Vec<usize>> = HashMap::new();
 
-    let process_answer = |results2: &mut HashMap<usize, Vec<usize>>, last: bool| {
+    let process_answer = |inner_results: &mut HashMap<usize, Vec<usize>>,
+                          last: bool|
+     -> anyhow::Result<()> {
         let timeout = Duration::from_secs(10);
 
         // TODO copy pasta
@@ -39,28 +45,31 @@ pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: Raw
 
             let size = usb_handles
                 .0
-                .read_bulk(usb_handles.1, &mut in_buf, timeout)
-                .unwrap();
+                .read_bulk(usb_handles.1, &mut in_buf, timeout)?;
 
-            let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
+            let response_text =
+                std::str::from_utf8(&ensure_index!(in_buf[0..size])).context("UTF8 error")?;
             let response_split: Vec<&str> = response_text.split(' ').collect();
 
-            match response_split[0] {
+            match ensure_index!(response_split[0]) {
                 "WrittenAndVerified" => {
                     println!(
                         "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
-                        response_split[1],
-                        response_split[2],
-                        response_split[3],
-                        response_split[4],
-                        response_split[5],
-                        response_split[6],
+                        ensure_index!(response_split[1]),
+                        ensure_index!(response_split[2]),
+                        ensure_index!(response_split[3]),
+                        ensure_index!(response_split[4]),
+                        ensure_index!(response_split[5]),
+                        ensure_index!(response_split[6]),
                     );
 
-                    let track: usize = response_split[1].parse().unwrap();
-                    let max_err: usize = response_split[5].parse().unwrap();
+                    let track: usize = ensure_index!(response_split[1]).parse()?;
+                    let max_err: usize = ensure_index!(response_split[5]).parse()?;
 
-                    results2.get_mut(&track).unwrap().push(max_err);
+                    inner_results
+                        .get_mut(&track)
+                        .context("Couldn't store results")?
+                        .push(max_err);
 
                     if last {
                         break;
@@ -70,20 +79,27 @@ pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: Raw
                 "Fail" => {
                     println!(
                         "Failed writing track {} head {} - num_writes:{}, num_reads:{}",
-                        response_split[1], response_split[2], response_split[3], response_split[4],
+                        ensure_index!(response_split[1]),
+                        ensure_index!(response_split[2]),
+                        ensure_index!(response_split[3]),
+                        ensure_index!(response_split[4]),
                     );
 
-                    let track: usize = response_split[1].parse().unwrap();
-                    results2.get_mut(&track).unwrap().push(55);
+                    let track: usize = ensure_index!(response_split[1]).parse()?;
+                    inner_results
+                        .get_mut(&track)
+                        .context("Couldn't store results")?
+                        .push(55);
 
                     if last {
                         break;
                     }
                 }
-                "WriteProtected" => panic!("Disk is write protected!"),
-                _ => panic!("Unexpected answer from device: {}", response_text),
+                "WriteProtected" => bail!("Disk is write protected!"),
+                _ => bail!("Unexpected answer from device: {}", response_text),
             }
         }
+        Ok(())
     };
 
     for forced_cylinder in cylinders_to_calibrate {
@@ -96,7 +112,7 @@ pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: Raw
             x
         } else {
             println!("Just use the last track...");
-            image.tracks.last_mut().unwrap()
+            image.tracks.last_mut().context("No track available")?
         };
 
         track.cylinder = forced_cylinder;
@@ -104,37 +120,37 @@ pub fn calibration(usb_handles: &(DeviceHandle<Context>, u8, u8), mut image: Raw
 
         for write_precomp in (0..maximum_write_precompensation).step_by(1) {
             track.write_precompensation = write_precomp;
-            write_raw_track(usb_handles, track);
+            write_raw_track(usb_handles, track)?;
 
-            process_answer(&mut results, false);
+            process_answer(&mut results, false)?;
         }
     }
     // get last answer
-    process_answer(&mut results, true);
+    process_answer(&mut results, true)?;
 
     println!("{results:?}");
 
-    let mut csv_wtr = csv::Writer::from_path("wprecomp.csv").unwrap();
+    let mut csv_wtr = csv::Writer::from_path("wprecomp.csv")?;
 
     // make header
-    csv_wtr.write_field("").unwrap();
+    csv_wtr.write_field("")?;
     for write_precomp in (0..maximum_write_precompensation).step_by(1) {
-        csv_wtr.write_field(write_precomp.to_string()).unwrap();
+        csv_wtr.write_field(write_precomp.to_string())?;
     }
-    csv_wtr.write_record(None::<&[u8]>).unwrap();
+    csv_wtr.write_record(None::<&[u8]>)?;
 
     // Data Rows
     let mut results: Vec<_> = results.iter().collect();
     results.sort_by_key(|f| f.0);
 
     for (track, entries) in results {
-        csv_wtr.write_field(track.to_string()).unwrap();
-        csv_wtr
-            .write_record(entries.iter().map(std::string::ToString::to_string))
-            .unwrap();
+        csv_wtr.write_field(track.to_string())?;
+        csv_wtr.write_record(entries.iter().map(std::string::ToString::to_string))?;
     }
 
-    csv_wtr.flush().unwrap();
+    csv_wtr.flush()?;
+
+    Ok(())
 }
 
 // vector of tuples of cellsize, track, wprecomp
@@ -150,21 +166,18 @@ pub struct WritePrecompDb {
 }
 
 impl WritePrecompDb {
-    #[must_use]
-    pub fn new() -> Option<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let mut samples = Vec::new();
 
         let wprecomp_path = home::home_dir()
-            .unwrap()
+            .context("Home Directoy not available")?
             .join(".usbfloppytracer/wprecomp.cfg");
 
         println!("Reading config from {wprecomp_path:?}");
-        let file = File::open(wprecomp_path)
-            .map_err(|f| {
-                println!("Write precompensation not used... {f}");
-                f
-            })
-            .ok()?;
+        let file = File::open(wprecomp_path).map_err(|f| {
+            println!("Write precompensation not used... {f}");
+            f
+        })?;
 
         let lines = io::BufReader::new(file).lines();
 
@@ -175,9 +188,9 @@ impl WritePrecompDb {
                 .collect();
 
             if number_parts.len() == 3 {
-                let cellsize = number_parts[0];
-                let cylinder = number_parts[1];
-                let wprecomp = number_parts[2];
+                let cellsize = ensure_index!(number_parts[0]);
+                let cylinder = ensure_index!(number_parts[1]);
+                let wprecomp = ensure_index!(number_parts[2]);
 
                 samples.push(Sample {
                     cellsize,
@@ -189,7 +202,7 @@ impl WritePrecompDb {
 
         samples.sort();
 
-        Some(Self { samples })
+        Ok(Self { samples })
     }
 
     fn lerp_left(&self, cellsize: u32, cylinder: u32) -> Option<(f32, u32)> {
@@ -221,24 +234,23 @@ impl WritePrecompDb {
         Some((left_result, left_top_sample.cellsize))
     }
 
-    fn lerp_right(&self, cellsize: u32, cylinder: u32) -> (f32, u32) {
+    fn lerp_right(&self, cellsize: u32, cylinder: u32) -> Option<(f32, u32)> {
         let Some(right_bottom_sample) = self
             .samples
             .iter().find(|f| f.cellsize >= cellsize && f.cylinder >= cylinder)
             else {
-                let last_sample = self.samples.last().unwrap();
-                return (last_sample.wprecomp as f32, last_sample.cellsize);
+                let last_sample = self.samples.last()?;
+                return Some((last_sample.wprecomp as f32, last_sample.cellsize));
             };
 
         let right_top_sample = self
             .samples
             .iter()
             .filter(|f| f.cellsize == right_bottom_sample.cellsize && f.cylinder <= cylinder)
-            .last()
-            .unwrap();
+            .last()?;
 
         if right_bottom_sample.cylinder == right_top_sample.cylinder {
-            return (right_top_sample.wprecomp as f32, right_top_sample.cellsize);
+            return Some((right_top_sample.wprecomp as f32, right_top_sample.cellsize));
         }
 
         let right_track_factor = (cylinder - right_top_sample.cylinder) as f32
@@ -247,7 +259,7 @@ impl WritePrecompDb {
             right_top_sample.wprecomp as f32,
             right_track_factor * right_bottom_sample.wprecomp as f32,
         );
-        (right_result, right_bottom_sample.cellsize)
+        Some((right_result, right_bottom_sample.cellsize))
     }
 
     #[must_use]
@@ -255,7 +267,7 @@ impl WritePrecompDb {
         // cell sizes are left to right, so the x axis
         // cylinders are top to bottom, so the y axis
         let (left_result, left_cellsize) = self.lerp_left(cellsize, cylinder)?;
-        let (right_result, right_cellsize) = self.lerp_right(cellsize, cylinder);
+        let (right_result, right_cellsize) = self.lerp_right(cellsize, cylinder)?;
 
         if left_cellsize == right_cellsize {
             return Some(left_result.round() as u32);

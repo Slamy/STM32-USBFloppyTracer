@@ -1,8 +1,8 @@
 use std::{ffi::OsStr, fs::File, io::Write, path::Path};
 
-use anyhow::bail;
+use anyhow::{bail, ensure, Context};
 use chrono::Local;
-use rusb::{Context, DeviceHandle};
+use rusb::DeviceHandle;
 use util::{duration_of_rotation_as_stm_tim_raw, Density, DriveSelectState, DRIVE_SLOWEST_RPM};
 
 use crate::{
@@ -62,12 +62,12 @@ type PossibleFormats = Vec<String>;
 type DynTrackParser = Box<dyn TrackParser>;
 
 pub fn read_first_track_discover_format(
-    usb_handles: &(DeviceHandle<Context>, u8, u8),
+    usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
     select_drive: DriveSelectState,
 ) -> anyhow::Result<(Option<DynTrackParser>, PossibleFormats)> {
     // For some reason, the High density can read both densities on the first few cylinders...
     // This is very useful and I assume not random at all
-    configure_device(usb_handles, select_drive, Density::High, 0);
+    configure_device(usb_handles, select_drive, Density::High, 0)?;
 
     // We need to make sure to read more than we need.
     // We only have one chance here. So just get 125% of the first track with the slowest drive we support.
@@ -105,7 +105,7 @@ pub fn read_first_track_discover_format(
 }
 
 pub fn read_tracks_to_diskimage(
-    usb_handles: &(DeviceHandle<Context>, u8, u8),
+    usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
     track_filter: Option<TrackFilter>,
     filepath: &str,
     select_drive: DriveSelectState,
@@ -114,7 +114,7 @@ pub fn read_tracks_to_diskimage(
         let (possible_track_parser, possible_formats) =
             read_first_track_discover_format(usb_handles, select_drive)?;
 
-        let track_parser = possible_track_parser.expect("Unable to detect floppy format!");
+        let track_parser = possible_track_parser.context("Unable to detect floppy format!")?;
         println!("Format is probably '{:?}'", possible_formats);
 
         let now = Local::now();
@@ -128,14 +128,14 @@ pub fn read_tracks_to_diskimage(
         let file_extension = Path::new(filepath)
             .extension()
             .and_then(OsStr::to_str)
-            .expect("No file extension!");
+            .context("No file extension!")?;
 
         let track_parser: DynTrackParser = match file_extension {
             "adf" => Box::new(AmigaTrackParser::new(util::Density::SingleDouble)),
             "d64" => Box::new(C64TrackParser::new()),
             "st" => Box::new(IsoTrackParser::new(None, Density::SingleDouble)),
             "img" => Box::new(IsoTrackParser::new(None, Density::High)),
-            _ => panic!("{} is an unknown file extension!", file_extension),
+            _ => bail!("{} is an unknown file extension!", file_extension),
         };
 
         (track_parser, filepath.into())
@@ -143,12 +143,12 @@ pub fn read_tracks_to_diskimage(
     let track_filter = track_filter.unwrap_or_else(|| track_parser.default_trackfilter());
 
     let duration_to_record = track_parser.duration_to_record();
-    configure_device(usb_handles, select_drive, track_parser.track_density(), 0);
+    configure_device(usb_handles, select_drive, track_parser.track_density(), 0)?;
 
     let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
     let mut cylinder_end = track_filter
         .cyl_end
-        .expect("Please specify the last cylinder to read!");
+        .context("Please specify the last cylinder to read!")?;
 
     if cylinder_begin == cylinder_end {
         cylinder_begin = 0;
@@ -160,11 +160,11 @@ pub fn read_tracks_to_diskimage(
         Some(0) => 0..1,
         Some(1) => 1..2,
         None => 0..2,
-        _ => bail!("Program flow error!"),
+        _ => bail!(program_flow_error!()),
     };
 
     println!("Reading cylinders {cylinder_begin} to {cylinder_end}");
-    let mut outfile = File::create(filepath).expect("Unable to create file");
+    let mut outfile = File::create(filepath)?;
 
     for cylinder in (cylinder_begin..cylinder_end).step_by(track_parser.step_size()) {
         for head in heads.clone() {
@@ -185,13 +185,13 @@ pub fn read_tracks_to_diskimage(
                 println!("Reading of track {cylinder} {head} not successful. Try again...")
             }
 
-            let track = possible_track
-                .unwrap_or_else(|| panic!("Unable to read track {} {}", cylinder, head));
+            let track =
+                possible_track.context(format!("Unable to read track {} {}", cylinder, head))?;
 
-            assert_eq!(cylinder, track.cylinder);
-            assert_eq!(head, track.head);
+            ensure!(cylinder == track.cylinder);
+            ensure!(head == track.head);
 
-            outfile.write_all(&track.payload).unwrap();
+            outfile.write_all(&track.payload)?;
         }
     }
 

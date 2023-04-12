@@ -1,17 +1,17 @@
 use std::time::Duration;
 
-use anyhow::bail;
-use rusb::{Context, DeviceHandle};
+use anyhow::{bail, ensure, Context};
+use rusb::DeviceHandle;
 use util::{Density, DriveSelectState};
 
 use crate::rawtrack::RawTrack;
 
 pub fn configure_device(
-    handles: &(DeviceHandle<Context>, u8, u8),
+    handles: &(DeviceHandle<rusb::Context>, u8, u8),
     select_drive: DriveSelectState,
     density: Density,
     index_sim_frequency: u32,
-) {
+) -> anyhow::Result<()> {
     let (handle, _endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
@@ -31,26 +31,28 @@ pub fn configure_device(
 
     writer
         .next()
-        .unwrap()
+        .context(program_flow_error!())?
         .clone_from_slice(&u32::to_le_bytes(0x1234_0002));
 
     writer
         .next()
-        .unwrap()
+        .context(program_flow_error!())?
         .clone_from_slice(&u32::to_le_bytes(settings));
 
     writer
         .next()
-        .unwrap()
+        .context(program_flow_error!())?
         .clone_from_slice(&u32::to_le_bytes(index_sim_frequency));
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
+        .context("Bulk Write failed - USB Problem?")?;
+
+    Ok(())
 }
 
 pub fn read_raw_track(
-    handles: &(DeviceHandle<Context>, u8, u8),
+    handles: &(DeviceHandle<rusb::Context>, u8, u8),
     cylinder: u32,
     head: u32,
     wait_for_index: bool,
@@ -75,13 +77,13 @@ pub fn read_raw_track(
     for word in header {
         writer
             .next()
-            .unwrap()
+            .context(program_flow_error!())?
             .clone_from_slice(&u32::to_le_bytes(word));
     }
 
     handle
         .write_bulk(*endpoint_out, &command_buf, timeout)
-        .expect("Bulk Transfer failed");
+        .context("Write Bulk Transfer failed - USB Problem?")?;
 
     let mut result = Vec::with_capacity(800 * 64); // TODO magic number
 
@@ -90,7 +92,7 @@ pub fn read_raw_track(
 
         let size = handle
             .read_bulk(*endpoint_in, &mut in_buf, timeout)
-            .expect("Read Bulk failed");
+            .context("Read Bulk failed - USB Problem?")?;
 
         if size == 64 {
             result.extend_from_slice(&in_buf);
@@ -98,7 +100,8 @@ pub fn read_raw_track(
             // End sign
             break;
         } else {
-            let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
+            let response_text =
+                std::str::from_utf8(&ensure_index!(in_buf[0..size])).context("UTF8 error")?;
             bail!("{}", response_text);
         }
     }
@@ -109,7 +112,10 @@ pub fn read_raw_track(
     Ok(result)
 }
 
-pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTrack) {
+pub fn write_raw_track(
+    handles: &(DeviceHandle<rusb::Context>, u8, u8),
+    track: &RawTrack,
+) -> anyhow::Result<()> {
     let (handle, _endpoint_in, endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
@@ -128,9 +134,9 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
 
     let mut writer = command_buf.chunks_mut(4);
 
-    assert!(track.head <= 1);
-    assert!(track.cylinder <= 0xff);
-    assert!(track.write_precompensation <= 0xff);
+    ensure!(track.head <= 1);
+    ensure!(track.cylinder <= 0xff);
+    ensure!(track.write_precompensation <= 0xff);
 
     let non_flux_reversal_mask = if track.has_non_flux_reversal_area {
         0x200
@@ -153,25 +159,29 @@ pub fn write_raw_track(handles: &(DeviceHandle<Context>, u8, u8), track: &RawTra
     for i in header {
         writer
             .next()
-            .unwrap()
+            .context(program_flow_error!())?
             .clone_from_slice(&u32::to_le_bytes(i));
     }
 
     for density_entry in &track.densitymap {
-        assert!(density_entry.cell_size.0 < 512);
+        ensure!(density_entry.cell_size.0 < 512);
 
-        writer.next().unwrap().clone_from_slice(&u32::to_le_bytes(
-            ((density_entry.number_of_cellbytes as u32) << 9) | density_entry.cell_size.0 as u32,
-        ));
+        writer
+            .next()
+            .context(program_flow_error!())?
+            .clone_from_slice(&u32::to_le_bytes(
+                ((density_entry.number_of_cellbytes as u32) << 9)
+                    | density_entry.cell_size.0 as u32,
+            ));
     }
 
-    handle
-        .write_bulk(*endpoint_out, &command_buf, timeout)
-        .unwrap();
+    handle.write_bulk(*endpoint_out, &command_buf, timeout)?;
 
     for block in track.raw_data.chunks(64) {
-        handle.write_bulk(*endpoint_out, block, timeout).unwrap();
+        handle.write_bulk(*endpoint_out, block, timeout)?;
     }
+
+    Ok(())
 }
 
 pub enum UsbAnswer {
@@ -194,28 +204,29 @@ pub enum UsbAnswer {
     WriteProtected,
 }
 
-pub fn wait_for_answer(handles: &(DeviceHandle<Context>, u8, u8)) -> UsbAnswer {
+pub fn wait_for_answer(
+    handles: &(DeviceHandle<rusb::Context>, u8, u8),
+) -> anyhow::Result<UsbAnswer> {
     let (handle, endpoint_in, _endpoint_out) = handles;
     let timeout = Duration::from_secs(10);
 
     // TODO copy pasta
     let mut in_buf = [0u8; 64];
 
-    let size = handle
-        .read_bulk(*endpoint_in, &mut in_buf, timeout)
-        .unwrap();
+    let size = handle.read_bulk(*endpoint_in, &mut in_buf, timeout)?;
 
-    let response_text = std::str::from_utf8(&in_buf[0..size]).unwrap();
+    let response_text =
+        std::str::from_utf8(&ensure_index!(in_buf[0..size])).context("UTF8 error")?;
     let response_split: Vec<&str> = response_text.split(' ').collect();
 
-    match response_split[0] {
+    Ok(match ensure_index!(response_split[0]) {
         "WrittenAndVerified" => {
-            let cylinder = response_split[1].parse().unwrap();
-            let head = response_split[2].parse().unwrap();
-            let writes = response_split[3].parse().unwrap();
-            let reads = response_split[4].parse().unwrap();
-            let max_err = response_split[5].parse().unwrap();
-            let write_precomp = response_split[6].parse().unwrap();
+            let cylinder = ensure_index!(response_split[1]).parse()?;
+            let head = ensure_index!(response_split[2]).parse()?;
+            let writes = ensure_index!(response_split[3]).parse()?;
+            let reads = ensure_index!(response_split[4]).parse()?;
+            let max_err = ensure_index!(response_split[5]).parse()?;
+            let write_precomp = ensure_index!(response_split[6]).parse()?;
 
             UsbAnswer::WrittenAndVerified {
                 cylinder,
@@ -228,11 +239,11 @@ pub fn wait_for_answer(handles: &(DeviceHandle<Context>, u8, u8)) -> UsbAnswer {
         }
         "GotCmd" => UsbAnswer::GotCmd,
         "Fail" => {
-            let cylinder = response_split[1].parse().unwrap();
-            let head = response_split[2].parse().unwrap();
-            let writes = response_split[3].parse().unwrap();
-            let reads = response_split[4].parse().unwrap();
-            let error = response_split[5].into();
+            let cylinder = ensure_index!(response_split[1]).parse()?;
+            let head = ensure_index!(response_split[2]).parse()?;
+            let writes = ensure_index!(response_split[3]).parse()?;
+            let reads = ensure_index!(response_split[4]).parse()?;
+            let error = ensure_index!(response_split[5]).into();
             UsbAnswer::Fail {
                 cylinder,
                 head,
@@ -242,6 +253,6 @@ pub fn wait_for_answer(handles: &(DeviceHandle<Context>, u8, u8)) -> UsbAnswer {
             }
         }
         "WriteProtected" => UsbAnswer::WriteProtected,
-        _ => panic!("Unexpected answer from device: {}", response_text),
-    }
+        _ => bail!("Unexpected answer from device: {}", response_text),
+    })
 }

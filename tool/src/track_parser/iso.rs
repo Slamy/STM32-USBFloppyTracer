@@ -1,4 +1,4 @@
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use util::{
     duration_of_rotation_as_stm_tim_raw,
     fluxpulse::FluxPulseToCells,
@@ -120,6 +120,8 @@ impl TrackParser for IsoTrackParser {
                             }
                         }
 
+                        let sector_index = ensure_index!(sector_header[2]);
+
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
                         crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_IDAM]);
                         crc.update(&sector_header);
@@ -127,23 +129,32 @@ impl TrackParser for IsoTrackParser {
                         if crc16 == 0 {
                             //println!("Got sector header {:?}", sector_header);
                             // Did we get this sector yet?
-                            let collected_sectors = self.collected_sectors.as_mut().unwrap();
+                            let collected_sectors = self
+                                .collected_sectors
+                                .as_mut()
+                                .context(program_flow_error!())?;
 
                             if collected_sectors
                                 .iter()
-                                .any(|f| f.index == u32::from(sector_header[2]))
+                                .any(|f| f.index == u32::from(sector_index))
                             {
                                 number_of_duplicate_sector_headers_found_in_stream += 1;
                             } else {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_dam = 40;
                             }
-                            ensure!(sector_header[0] as u32 == self.expected_cylinder.unwrap());
-                            ensure!(sector_header[1] as u32 == self.expected_head.unwrap());
+                            ensure!(
+                                ensure_index!(sector_header[0]) as u32
+                                    == self.expected_cylinder.context(program_flow_error!())?
+                            );
+                            ensure!(
+                                ensure_index!(sector_header[1]) as u32
+                                    == self.expected_head.context(program_flow_error!())?
+                            );
                         }
                     }
                     Some(MfmWord::Enc(ISO_DAM)) if awaiting_dam > 0 => {
-                        let sector_size = 128 << sector_header[3];
+                        let sector_size = 128 << ensure_index!(sector_header[3]);
                         let mut sector_data = Vec::with_capacity(sector_size + 2);
 
                         for _ in 0..sector_size + 2 {
@@ -155,16 +166,21 @@ impl TrackParser for IsoTrackParser {
                             }
                         }
 
+                        let sector_index = ensure_index!(sector_header[2]);
+
                         let mut crc = crc16::State::<crc16::CCITT_FALSE>::new();
                         crc.update(&[ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_SYNC_BYTE, ISO_DAM]);
                         crc.update(&sector_data);
                         let crc16 = crc.get();
                         if crc16 == 0 {
-                            let collected_sectors = self.collected_sectors.as_mut().unwrap();
+                            let collected_sectors = self
+                                .collected_sectors
+                                .as_mut()
+                                .context(program_flow_error!())?;
 
                             sector_data.resize(sector_size, 0); // remove CRC at the end
                             collected_sectors.push(CollectedSector {
-                                index: u32::from(sector_header[2]),
+                                index: u32::from(sector_index),
                                 payload: sector_data,
                             });
 
@@ -175,7 +191,7 @@ impl TrackParser for IsoTrackParser {
                                 break;
                             }
                         } else {
-                            println!("CRC Error Sector {}", sector_header[2]);
+                            println!("CRC Error Sector {}", sector_index);
                         }
                     }
                     _ => {}
@@ -184,7 +200,13 @@ impl TrackParser for IsoTrackParser {
         }
 
         // we need to at least have one sector. if not, this read was not successful at all
-        ensure!(self.collected_sectors.as_ref().unwrap().is_empty() == false);
+        ensure!(
+            self.collected_sectors
+                .as_ref()
+                .context(program_flow_error!())?
+                .is_empty()
+                == false
+        );
 
         self.assumed_disk_type.get_or_insert_with(|| {
             println!(
@@ -203,23 +225,36 @@ impl TrackParser for IsoTrackParser {
 
         // The number of sectors must match our expectations in case they exist
         if let Some(expected_sectors_per_track) = self.expected_sectors_per_track {
-            ensure!(self.collected_sectors.as_ref().unwrap().len() == expected_sectors_per_track);
+            ensure!(
+                self.collected_sectors
+                    .as_ref()
+                    .context(program_flow_error!())?
+                    .len()
+                    == expected_sectors_per_track
+            );
         } else {
             // But for the next tracks, I really want them to match to be more safe here.
             // Flukes in reading the first track will cause a fail in the next as the sector
             // numbers won't match on the next.
-            let collected_sector_number = self.collected_sectors.as_ref().unwrap().len();
+            let collected_sector_number = self
+                .collected_sectors
+                .as_ref()
+                .context(program_flow_error!())?
+                .len();
 
             println!("Assume {collected_sector_number} sectors per track from now on...");
             self.expected_sectors_per_track = Some(collected_sector_number);
         }
 
-        let collected_sectors = self.collected_sectors.take().unwrap();
+        let collected_sectors = self
+            .collected_sectors
+            .take()
+            .context(program_flow_error!())?;
 
         Ok(concatenate_sectors(
             collected_sectors,
-            self.expected_cylinder.unwrap(),
-            self.expected_head.unwrap(),
+            self.expected_cylinder.context(program_flow_error!())?,
+            self.expected_head.context(program_flow_error!())?,
         ))
     }
 
