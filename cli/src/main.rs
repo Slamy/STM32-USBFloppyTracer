@@ -257,7 +257,9 @@ fn main() {
 
     if cli.read && cli.filepath == "discover" {
         println!("Let me see...");
-        let _not_required = read_first_track_discover_format(&usb_handles, select_drive);
+        let (_possible_track_parser, possible_formats) =
+            read_first_track_discover_format(&usb_handles, select_drive).unwrap();
+        println!("Format is probably '{:?}'", possible_formats);
     } else if cli.read {
         let track_filter = cli.track_filter;
         let track_filter = track_filter.map(|f| TrackFilter::new(&f));

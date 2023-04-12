@@ -16,6 +16,8 @@ alloc-cortex-m = "0.4.2"
 ouroboros = "0.15.5"
 cassette = "0.2.3"
 rtt-target = { version ="0.3.1", features = ["cortex-m"] }
+unwrap-infallible = "0.1.5"
+panic-persist = "0.3.0"
 
 [dev-dependencies]
 nb = "1.0"

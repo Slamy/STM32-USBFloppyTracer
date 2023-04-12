@@ -1,8 +1,11 @@
 #![no_std]
 #![no_main]
 #![feature(let_chains)]
+#![warn(clippy::indexing_slicing)]
+#![warn(clippy::panic_in_result_fn)]
+#![warn(clippy::unwrap_in_result)]
+#![warn(clippy::unwrap_used)]
 
-pub mod custom_panic;
 pub mod floppy_control;
 pub mod floppy_drive_unit;
 pub mod floppy_stepper;
@@ -27,6 +30,7 @@ use flux_reader::FluxReader;
 use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
 use index_sim::IndexSim;
+use panic_persist::get_panic_message_bytes;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, Pull, PushPull};
 use stm32f4xx_hal::otg_fs::USB;
@@ -77,8 +81,9 @@ fn main() -> ! {
 
     rtt_init_print!();
 
-    let mut dp = pac::Peripherals::take().unwrap();
-    let mut cp = cortex_m::Peripherals::take().unwrap();
+    // there is no alternative to unwrap here. It will and shall never fail
+    let mut dp = pac::Peripherals::take().expect("Must never fail");
+    let mut cp = cortex_m::Peripherals::take().expect("Must never fail");
 
     cp.DWT.enable_cycle_counter();
     dp.RCC.apb1enr.modify(|_, w| w.tim2en().set_bit());
@@ -141,6 +146,14 @@ fn main() -> ! {
         .into_push_pull_output_in_state(stm32f4xx_hal::gpio::PinState::High);
     let _in_disk_change_ready = gpiob.pb12.into_pull_up_input();
 
+    // Check if there was a panic message, if so, send to UART
+    if let Some(msg) = get_panic_message_bytes() {
+        rprintln!(
+            "Panic: {}",
+            core::str::from_utf8(msg).unwrap_or("UTF parse error")
+        );
+    }
+
     let drive_a = FloppyDriveUnit::new(Box::new(out_motor_enable_a), Box::new(out_drive_select_a));
     let drive_b = FloppyDriveUnit::new(Box::new(out_motor_enable_b), Box::new(out_drive_select_b));
     let stepper = FloppyStepperSignals::new(
@@ -167,8 +180,8 @@ fn main() -> ! {
         hclk: clocks.hclk(),
     };
 
-    let x = cortex_m::singleton!(: [u32; 1024] = [0; 1024]);
-    let usb_bus = &*cortex_m::singleton!(: UsbBusAllocator<stm32f4xx_hal::otg_fs::UsbBusType> = stm32f4xx_hal::otg_fs::UsbBusType::new(usb, x.unwrap())).unwrap();
+    let usb_memory = cortex_m::singleton!(: [u32; 1024] = [0; 1024]);
+    let usb_bus = &*cortex_m::singleton!(: UsbBusAllocator<stm32f4xx_hal::otg_fs::UsbBusType> = stm32f4xx_hal::otg_fs::UsbBusType::new(usb, usb_memory.expect("Must never fail"))).unwrap();
 
     let dma1 = dp.DMA1;
     let dma1_arc1 = Arc::new(Mutex::new(dma1));
@@ -281,7 +294,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                         .borrow(cs)
                         .borrow_mut()
                         .as_mut()
-                        .unwrap()
+                        .expect("Program flow error")
                         .spin_motor();
                 });
 

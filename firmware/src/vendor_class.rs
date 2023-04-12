@@ -130,6 +130,115 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
             }
         }
     }
+
+    fn handle_command(&mut self, buf: &[u8]) -> Option<()> {
+        let mut header = buf.chunks(4);
+
+        let command = u32::from_le_bytes(header.next()?.try_into().ok()?);
+        match command {
+            // Write track
+            0x1234_0001 => {
+                self.expected_size = u32::from_le_bytes(header.next()?.try_into().ok()?) as usize;
+                self.remaining_blocks = u32::from_le_bytes(header.next()?.try_into().ok()?);
+
+                // Fields 00000000 PPPPPPPP 000000NH CCCCCCCC
+                let packed_configuration = u32::from_le_bytes(header.next()?.try_into().ok()?);
+
+                self.cylinder = packed_configuration & 0xff;
+                self.head = (packed_configuration >> 8) & 1;
+                self.has_non_flux_reversal_area = (packed_configuration & 0x200) != 0;
+                self.write_precompensation =
+                    PulseDuration(((packed_configuration >> 16) & 0xff) as i32);
+
+                let speed_table_size = u32::from_le_bytes(header.next()?.try_into().ok()?);
+
+                for _ in 0..speed_table_size {
+                    let table_entry = u32::from_le_bytes(header.next()?.try_into().ok()?);
+
+                    self.speeds.push(DensityMapEntry {
+                        number_of_cellbytes: (table_entry >> 9) as usize,
+                        cell_size: (PulseDuration((table_entry & 0x1ff) as i32)),
+                    });
+                }
+                self.receive_buffer.reserve(self.expected_size);
+            }
+            // Configure drive
+            0x1234_0002 => {
+                let settings = u32::from_le_bytes(header.next()?.try_into().ok()?);
+                let index_sim_frequency = u32::from_le_bytes(header.next()?.try_into().ok()?);
+
+                let selected_drive = if settings & 1 == 0 {
+                    DriveSelectState::A
+                } else {
+                    DriveSelectState::B
+                };
+
+                let floppy_density = if settings & 2 == 0 {
+                    Density::SingleDouble
+                } else {
+                    Density::High
+                };
+                cortex_m::interrupt::free(|cs| {
+                    INDEX_SIM
+                        .borrow(cs)
+                        .borrow_mut()
+                        .as_ref()
+                        .expect("Program flow error")
+                        .configure(index_sim_frequency);
+
+                    let mut floppy_control_borrow =
+                        interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
+                    let floppy_control =
+                        floppy_control_borrow.as_mut().expect("Program flow error");
+
+                    floppy_control.select_drive(selected_drive);
+                    floppy_control.select_density(floppy_density);
+                });
+            }
+            // step to track
+            0x1234_0003 => {
+                let cylinder = u32::from_le_bytes(header.next()?.try_into().ok()?);
+                cortex_m::interrupt::free(|cs| {
+                    let mut floppy_control_borrow =
+                        interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
+                    let floppy_control =
+                        floppy_control_borrow.as_mut().expect("Program flow error");
+
+                    rprintln!("Step to track {}", cylinder);
+                    floppy_control.select_track(Track {
+                        cylinder: Cylinder(cylinder as u8),
+                        head: Head(0),
+                    });
+                });
+            }
+            // read track
+            0x1234_0004 => {
+                let packed_configuration = u32::from_le_bytes(header.next()?.try_into().ok()?);
+                let duration_to_record = u32::from_le_bytes(header.next()?.try_into().ok()?);
+                let cylinder = packed_configuration & 0xff;
+                let head = (packed_configuration >> 8) & 1;
+                let wait_for_index = ((packed_configuration >> 9) & 1) != 0;
+                let new_command = Command::ReadTrack {
+                    track: Track {
+                        cylinder: Cylinder(cylinder as u8),
+                        head: Head(head as u8),
+                    },
+                    duration_to_record,
+                    wait_for_index,
+                };
+
+                let old_command = self.current_command.replace(new_command);
+
+                // Last command shall be not existing.
+                // If it exists, it was dropped now, which is not good
+                assert!(old_command.is_none());
+            }
+            _ => {
+                rprintln!("Unknown command");
+            }
+        }
+        Some(())
+    }
 }
 
 impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
@@ -163,7 +272,7 @@ impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Sub-Compatible ID (unused)
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Reserved
             ])
-            .unwrap();
+            .expect("Unexpected USB problem");
             return;
         }
 
@@ -211,121 +320,10 @@ impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
 
         if let Ok(count) = self.read_packet(&mut buf) {
             if self.remaining_blocks == 0 {
-                let mut header = buf.chunks(4);
-
-                let command = u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-                match command {
-                    // Write track
-                    0x1234_0001 => {
-                        self.expected_size =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap()) as usize;
-                        self.remaining_blocks =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-
-                        // Fields 00000000 PPPPPPPP 000000NH CCCCCCCC
-                        let packed_configuration =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-
-                        self.cylinder = packed_configuration & 0xff;
-                        self.head = (packed_configuration >> 8) & 1;
-                        self.has_non_flux_reversal_area = (packed_configuration & 0x200) != 0;
-                        self.write_precompensation =
-                            PulseDuration(((packed_configuration >> 16) & 0xff) as i32);
-
-                        let speed_table_size =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-
-                        for _ in 0..speed_table_size {
-                            let table_entry =
-                                u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-
-                            self.speeds.push(DensityMapEntry {
-                                number_of_cellbytes: (table_entry >> 9) as usize,
-                                cell_size: (PulseDuration((table_entry & 0x1ff) as i32)),
-                            });
-                        }
-                        self.receive_buffer.reserve(self.expected_size);
-                    }
-                    // Configure drive
-                    0x1234_0002 => {
-                        let settings =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-                        let index_sim_frequency =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-
-                        let selected_drive = if settings & 1 == 0 {
-                            DriveSelectState::A
-                        } else {
-                            DriveSelectState::B
-                        };
-
-                        let floppy_density = if settings & 2 == 0 {
-                            Density::SingleDouble
-                        } else {
-                            Density::High
-                        };
-                        cortex_m::interrupt::free(|cs| {
-                            INDEX_SIM
-                                .borrow(cs)
-                                .borrow_mut()
-                                .as_ref()
-                                .unwrap()
-                                .configure(index_sim_frequency);
-
-                            let mut floppy_control_borrow =
-                                interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
-                            let floppy_control = floppy_control_borrow.as_mut().unwrap();
-
-                            floppy_control.select_drive(selected_drive);
-                            floppy_control.select_density(floppy_density);
-                        });
-                    }
-                    // step to track
-                    0x1234_0003 => {
-                        let cylinder =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-                        cortex_m::interrupt::free(|cs| {
-                            let mut floppy_control_borrow =
-                                interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
-                            let floppy_control = floppy_control_borrow.as_mut().unwrap();
-
-                            rprintln!("Step to track {}", cylinder);
-                            floppy_control.select_track(Track {
-                                cylinder: Cylinder(cylinder as u8),
-                                head: Head(0),
-                            });
-                        });
-                    }
-                    // read track
-                    0x1234_0004 => {
-                        let packed_configuration =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-                        let duration_to_record =
-                            u32::from_le_bytes(header.next().unwrap().try_into().unwrap());
-                        let cylinder = packed_configuration & 0xff;
-                        let head = (packed_configuration >> 8) & 1;
-                        let wait_for_index = ((packed_configuration >> 9) & 1) != 0;
-                        let new_command = Command::ReadTrack {
-                            track: Track {
-                                cylinder: Cylinder(cylinder as u8),
-                                head: Head(head as u8),
-                            },
-                            duration_to_record,
-                            wait_for_index,
-                        };
-
-                        let old_command = self.current_command.replace(new_command);
-
-                        // Last command shall be not existing.
-                        // If it exists, it was dropped now, which is not good
-                        assert!(old_command.is_none());
-                    }
-                    _ => {
-                        rprintln!("Unknown command");
-                    }
-                }
+                self.handle_command(&buf);
             } else {
-                self.receive_buffer.extend(buf[0..count].iter());
+                let buf = buf.get(0..count).expect("Cannot fail.");
+                self.receive_buffer.extend(buf.iter());
 
                 self.remaining_blocks -= 1;
 

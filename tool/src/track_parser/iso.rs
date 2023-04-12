@@ -61,7 +61,7 @@ impl TrackParser for IsoTrackParser {
         };
 
         let percent = match self.density {
-            Density::High => 106,
+            Density::High => 108,
             Density::SingleDouble => 110,
         };
         duration_of_rotation_as_stm_tim_raw(rpm) * percent / 100
@@ -150,6 +150,7 @@ impl TrackParser for IsoTrackParser {
                             if let Some(MfmWord::Enc(val)) = iterator.next() {
                                 sector_data.push(val);
                             } else {
+                                println!("Early end!");
                                 break;
                             }
                         }

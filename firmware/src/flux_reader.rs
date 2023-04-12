@@ -67,8 +67,12 @@ impl FluxReader {
         assert!(!dma_stream.cr.read().en().is_enabled());
         assert!(!self.tim2.cr1.read().cen().is_enabled());
 
-        self.back_buffer.resize(BUFFER_SIZE, 0).unwrap();
-        self.current_buffer.resize(BUFFER_SIZE, 0).unwrap();
+        self.back_buffer
+            .resize(BUFFER_SIZE, 0)
+            .expect("Must never fail");
+        self.current_buffer
+            .resize(BUFFER_SIZE, 0)
+            .expect("Must never fail");
 
         #[rustfmt::skip] // keep the config readable!
             dma_stream.cr.write(|w| {

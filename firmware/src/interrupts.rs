@@ -29,7 +29,7 @@ pub fn flux_reader_stop_reception() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .stop_reception(cs);
     });
 }
@@ -40,7 +40,7 @@ pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()>
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .select_track(track);
     });
 
@@ -50,7 +50,7 @@ pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()>
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .reached_selected_cylinder()
         });
 
@@ -75,7 +75,7 @@ pub fn async_wait_for_index() -> impl Future<Output = Result<(), ()>> {
                     .borrow(cs)
                     .borrow()
                     .as_ref()
-                    .unwrap()
+                    .expect("Program flow error")
                     .is_spinning(),
             )
         });
@@ -98,13 +98,13 @@ pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
                     .borrow(cs)
                     .borrow()
                     .as_ref()
-                    .unwrap()
+                    .expect("Program flow error")
                     .transmission_active(),
                 FLOPPY_CONTROL
                     .borrow(cs)
                     .borrow()
                     .as_ref()
-                    .unwrap()
+                    .expect("Program flow error")
                     .is_spinning(),
             )
         });
@@ -127,13 +127,13 @@ pub fn async_wait_for_receive() -> impl Future<Output = Result<(), ()>> {
                     .borrow(cs)
                     .borrow()
                     .as_ref()
-                    .unwrap()
+                    .expect("Program flow error")
                     .transmission_active(),
                 FLOPPY_CONTROL
                     .borrow(cs)
                     .borrow()
                     .as_ref()
-                    .unwrap()
+                    .expect("Program flow error")
                     .is_spinning(),
             )
         });
@@ -155,7 +155,7 @@ fn DMA1_STREAM1() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .dma1_stream1_irq(cs);
     });
 }
@@ -167,7 +167,7 @@ fn SysTick() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .run();
     });
 }
@@ -181,7 +181,7 @@ fn EXTI3() {
             .borrow(cs)
             .borrow()
             .as_ref()
-            .unwrap()
+            .expect("Program flow error")
             .transmission_active()
         {
             rprintln!("Warning! Overwriting my own track!");
@@ -194,7 +194,7 @@ fn EXTI3() {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .start_transmit(cs);
         }
 
@@ -205,7 +205,7 @@ fn EXTI3() {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .start_reception(cs);
         }
 
@@ -213,7 +213,7 @@ fn EXTI3() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .clear_interrupt_pending_bit();
     });
 }
@@ -225,7 +225,7 @@ fn TIM4() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .tim4_irq(cs);
     });
 }
@@ -237,7 +237,7 @@ fn DMA1_STREAM6() {
             .borrow(cs)
             .borrow_mut()
             .as_mut()
-            .unwrap()
+            .expect("Program flow error")
             .dma1_stream6_irq(cs);
     });
 }

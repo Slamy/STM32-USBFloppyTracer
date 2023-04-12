@@ -7,6 +7,7 @@ use stm32f4xx_hal::{
     gpio::PinState,
     hal::digital::v2::{InputPin, OutputPin},
 };
+use unwrap_infallible::UnwrapInfallible;
 use util::{Density, DriveSelectState, Track};
 
 use crate::{
@@ -53,11 +54,11 @@ impl FloppyControl {
     pub fn select_density(&mut self, dens: Density) {
         match dens {
             Density::High => {
-                self.out_density_select.set_high().unwrap();
+                self.out_density_select.set_high().unwrap_infallible();
                 rprintln!("High Density selected!");
             }
             Density::SingleDouble => {
-                self.out_density_select.set_low().unwrap();
+                self.out_density_select.set_low().unwrap_infallible();
                 rprintln!("Double Density selected!");
             }
         }
@@ -66,9 +67,9 @@ impl FloppyControl {
     pub fn write_protection_is_active(&mut self) -> bool {
         assert!(self
             .selected_drive_unit()
-            .unwrap()
+            .expect("Drive not selected")
             .selection_signal_active());
-        self.in_write_protect.is_low().unwrap()
+        self.in_write_protect.is_low().unwrap_infallible()
     }
 
     pub fn spin_motor(&mut self) {
@@ -112,7 +113,7 @@ impl FloppyControl {
     }
 
     pub fn select_track(&mut self, track: Track) {
-        let selected_drive = self.selected_drive_unit().unwrap();
+        let selected_drive = self.selected_drive_unit().expect("Drive not selected!");
 
         let wanted_cylinder = u32::from(track.cylinder.0);
         if !selected_drive.head_position_equals(wanted_cylinder) {
@@ -120,7 +121,7 @@ impl FloppyControl {
             let func = Box::pin(
                 self.floppy_step_signals
                     .take()
-                    .unwrap()
+                    .expect("Program flow error")
                     .step_to_cylinder(current_head_position, u32::from(track.cylinder.0)),
             );
 
@@ -133,7 +134,7 @@ impl FloppyControl {
             } else {
                 PinState::Low
             })
-            .unwrap();
+            .unwrap_infallible();
     }
 
     #[must_use]
@@ -150,7 +151,7 @@ impl FloppyControl {
                 let old = self.floppy_step_signals.replace(result.0);
                 assert!(old.is_none(), "Program flow error");
                 self.selected_drive_unit()
-                    .unwrap()
+                    .expect("Drive not selected")
                     .insert_current_head_position(result.1);
 
                 self.floppy_step_progress = None;

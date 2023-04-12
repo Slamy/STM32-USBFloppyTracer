@@ -396,7 +396,7 @@ impl UsbFloppyTracerWindow {
                             if possible_formats.is_empty() {
                                 "No known format detected".into()
                             } else {
-                                format!("{:?}", possible_formats)
+                                format!("Format is probably {:?}", possible_formats)
                             }
                         }
                         Err(x) => x.to_string(),

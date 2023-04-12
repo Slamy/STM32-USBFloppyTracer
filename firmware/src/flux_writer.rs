@@ -6,6 +6,7 @@ use cortex_m::interrupt::{CriticalSection, Mutex};
 use heapless::spsc::Consumer;
 use heapless::Vec;
 use stm32f4xx_hal::hal::digital::v2::OutputPin;
+use unwrap_infallible::UnwrapInfallible;
 
 use stm32f4xx_hal::pac::{DMA1, TIM4};
 
@@ -68,10 +69,10 @@ impl FluxWriter {
             }
             if self.number_of_last_pulses == -2 {
                 self.tim4.cr1.modify(|_, w| w.cen().clear_bit()); // disable timer
-                self.write_gate.set_high().unwrap();
+                self.write_gate.set_high().unwrap_infallible();
             }
         } else {
-            panic!("Wasted TIM4 IRQ !");
+            panic!("Unexpected TIM4 IRQ ! Program flow error!");
         }
     }
 
@@ -80,14 +81,16 @@ impl FluxWriter {
         self.current_buffer.clear();
 
         while self.cons.ready() && !self.current_buffer.is_full() {
-            let pulse = self.cons.dequeue().unwrap();
-            self.current_buffer.push(pulse as u16).unwrap();
+            let pulse = self.cons.dequeue().expect("Is not possible to fail");
+            self.current_buffer
+                .push(pulse as u16)
+                .expect("Is not possible to fail");
         }
     }
 
     pub fn clear_buffers(&mut self) {
-        while self.cons.ready() {
-            self.cons.dequeue().unwrap();
+        while self.cons.dequeue().is_some() {
+            // Do nothing with the result
         }
     }
 
@@ -180,13 +183,13 @@ impl FluxWriter {
     }
 
     pub fn enable_write_head(&mut self) {
-        self.write_gate.set_low().unwrap();
+        self.write_gate.set_low().unwrap_infallible();
     }
 
     pub fn start_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
-        self.write_gate.set_low().unwrap();
+        self.write_gate.set_low().unwrap_infallible();
 
         dma_stream.cr.modify(|_, w| w.en().enabled()); // enable dma
         self.tim4.cr1.modify(|_, w| w.cen().set_bit()); // enable timer

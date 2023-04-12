@@ -5,6 +5,7 @@ use stm32f4xx_hal::{
     gpio::PinState,
     hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin},
 };
+use unwrap_infallible::UnwrapInfallible;
 
 use crate::floppy_drive_unit::HeadPosition;
 
@@ -51,14 +52,14 @@ impl FloppyStepperSignals {
             StepDirection::Inward => PinState::Low,
             StepDirection::Outward => PinState::High,
         };
-        self.out_step_direction.set_state(state).unwrap();
+        self.out_step_direction.set_state(state).unwrap_infallible();
         wait(DURATION_CHANGE_SETTLE_TIME).await;
     }
 
     async fn perform_step(&mut self) {
-        self.out_step_perform.set_low().unwrap();
+        self.out_step_perform.set_low().unwrap_infallible();
         cassette::yield_now().await;
-        self.out_step_perform.set_high().unwrap();
+        self.out_step_perform.set_high().unwrap_infallible();
         cassette::yield_now().await;
     }
 
@@ -75,12 +76,12 @@ impl FloppyStepperSignals {
                 for _ in 0..90 {
                     self.perform_step().await;
 
-                    if self.in_track_00.is_low().unwrap() {
+                    if self.in_track_00.is_low().unwrap_infallible() {
                         break;
                     }
                 }
                 wait_for_head_to_settle().await;
-                if self.in_track_00.is_high().unwrap() {
+                if self.in_track_00.is_high().unwrap_infallible() {
                     return (self, HeadPosition::Unknown);
                 };
                 0 // Head position is now known as cylinder 0

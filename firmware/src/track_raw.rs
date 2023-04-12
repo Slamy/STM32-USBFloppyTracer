@@ -56,7 +56,7 @@ impl RawTrackHandler {
                         .borrow(cs)
                         .borrow_mut()
                         .as_mut()
-                        .unwrap()
+                        .expect("Program flow error")
                         .is_spinning()
                 });
 
@@ -83,7 +83,7 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .write_protection_is_active()
         });
 
@@ -207,7 +207,7 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .clear_buffers();
 
             // Start degaussing the track.
@@ -219,27 +219,27 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .enable_write_head();
 
             interrupts::FLOPPY_CONTROL
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .spin_motor();
         });
 
         // prefill output buffer
         let mut parts = track_data_to_write.borrow_parts().iter();
-        let part = parts.next().unwrap();
+        let part = parts.next().expect("No part");
 
         let mut write_prod_fpg = FluxPulseGenerator::new(
             |f| {
                 self.write_prod_cell
                     .borrow_mut()
                     .enqueue(f.0 as u32)
-                    .unwrap()
+                    .expect("Unexpected Buffer Overflow")
             },
             part.cell_size.0 as u32,
         );
@@ -256,7 +256,7 @@ impl RawTrackHandler {
 
         // prefill buffer with first data
         while self.write_prod_cell.borrow().len() < 70 {
-            let mfm_byte = *track_data_iter.next().unwrap();
+            let mfm_byte = *track_data_iter.next().expect("Unexpected underflow");
             to_bit_stream(mfm_byte, |bit| write_prod_fpg.feed(bit));
         }
 
@@ -265,7 +265,7 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .prepare_transmit(cs);
         });
 
@@ -321,7 +321,7 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .spin_motor();
         });
 
@@ -346,7 +346,7 @@ impl RawTrackHandler {
                     .borrow(cs)
                     .borrow_mut()
                     .as_mut()
-                    .unwrap()
+                    .expect("Program flow error")
                     .start_reception(cs);
             });
         }
@@ -449,7 +449,7 @@ impl RawTrackHandler {
                 .borrow(cs)
                 .borrow_mut()
                 .as_mut()
-                .unwrap()
+                .expect("Program flow error")
                 .spin_motor();
         });
 
@@ -458,7 +458,7 @@ impl RawTrackHandler {
 
         // we might have multiple different cell densities. grab the first one
         let mut parts = track_data_to_write.borrow_parts().iter();
-        let part = parts.next().unwrap();
+        let part = parts.next().expect("No part");
 
         // How similar should the data be against the reference?
         // The minimum similarity is half of the bit cell. But we are better than that!
@@ -509,11 +509,20 @@ impl RawTrackHandler {
         for _ in 0..5 {
             flux_data_to_write_queue.borrow_mut().pop_front();
         }
-        let last = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+        let last = flux_data_to_write_queue
+            .borrow_mut()
+            .pop_front()
+            .expect("No data to work with?");
         let mut removed = 6;
 
         // avoid lack of entropy by removing repeated data
-        while flux_data_to_write_queue.borrow_mut().front().unwrap().0 == last.0 {
+        while flux_data_to_write_queue
+            .borrow_mut()
+            .front()
+            .expect("Unexpected buffer underflow")
+            .0
+            == last.0
+        {
             removed += 1;
             flux_data_to_write_queue.borrow_mut().pop_front();
 
@@ -594,14 +603,20 @@ impl RawTrackHandler {
                 break;
             }
 
-            let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
-            let readback = read_mfm_flux_data_queue.pop_front().unwrap();
+            let reference = flux_data_to_write_queue
+                .borrow_mut()
+                .pop_front()
+                .expect("No groundtruth data? Should not be possible");
+            let Some(readback) = read_mfm_flux_data_queue.pop_front() else {break;};
 
             if reference.0 > part.cell_size.0 * 10 {
                 // Non Flux Reversal Detected. Some cleanup needed.
                 // TODO Is this really the best approach to fix this?
                 // It is also pretty random. Sometimes it doesn't work at all.
-                flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+                flux_data_to_write_queue
+                    .borrow_mut()
+                    .pop_front()
+                    .expect("No groundtruth data? Should not be possible");
             } else if !reference.similar(&readback, similarity_treshold) {
                 flux_reader_stop_reception();
                 rprintln!(
@@ -630,14 +645,20 @@ impl RawTrackHandler {
             }
 
             if let Some(readback) = self.read_cons.dequeue() {
-                let reference = flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+                let reference = flux_data_to_write_queue
+                    .borrow_mut()
+                    .pop_front()
+                    .expect("No groundtruth data? Should not be possible");
 
                 // TODO Copy pasta
                 if reference.0 > part.cell_size.0 * 10 {
                     // Non Flux Reversal Detected. Some cleanup needed.
                     // TODO Is this really the best approach to fix this?
                     // It is also pretty random. Sometimes it doesn't work at all.
-                    flux_data_to_write_queue.borrow_mut().pop_front().unwrap();
+                    flux_data_to_write_queue
+                        .borrow_mut()
+                        .pop_front()
+                        .expect("No groundtruth data? Should not be possible");
                 } else if !reference.similar(&PulseDuration(readback as i32), similarity_treshold) {
                     flux_reader_stop_reception();
                     rprintln!(

@@ -2,6 +2,7 @@ use core::convert::Infallible;
 
 use alloc::boxed::Box;
 use stm32f4xx_hal::hal::digital::v2::{OutputPin, StatefulOutputPin};
+use unwrap_infallible::UnwrapInfallible;
 
 enum MotorState {
     Off,
@@ -44,24 +45,24 @@ impl FloppyDriveUnit {
     }
 
     pub fn spin_motor(&mut self) {
-        self.out_motor_enable.set_low().unwrap();
-        self.out_drive_select.set_low().unwrap();
+        self.out_motor_enable.set_low().unwrap_infallible();
+        self.out_drive_select.set_low().unwrap_infallible();
         self.motor_state = MotorState::On(600);
     }
 
     pub fn disable_select_signal_if_possible(&mut self) {
         if matches!(self.motor_state, MotorState::Off) && self.head_position.is_some() {
-            self.out_drive_select.set_high().unwrap();
+            self.out_drive_select.set_high().unwrap_infallible();
         }
     }
 
     #[must_use]
     pub fn selection_signal_active(&self) -> bool {
-        self.out_drive_select.is_set_low().unwrap()
+        self.out_drive_select.is_set_low().unwrap_infallible()
     }
 
     pub fn stop_motor(&mut self) {
-        self.out_motor_enable.set_high().unwrap();
+        self.out_motor_enable.set_high().unwrap_infallible();
         self.motor_state = MotorState::Off;
         self.disable_select_signal_if_possible();
     }
@@ -72,8 +73,8 @@ impl FloppyDriveUnit {
     }
 
     pub fn take_head_position_for_stepping(&mut self) -> HeadPosition {
-        let taken = self.head_position.take().unwrap();
-        self.out_drive_select.set_low().unwrap();
+        let taken = self.head_position.take().expect("Program flow error");
+        self.out_drive_select.set_low().unwrap_infallible();
         taken
     }
 
