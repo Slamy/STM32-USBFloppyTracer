@@ -258,13 +258,21 @@ fn main() {
     if cli.read && cli.filepath == "discover" {
         println!("Let me see...");
         let (_possible_track_parser, possible_formats) =
-            read_first_track_discover_format(&usb_handles, select_drive).unwrap();
+            read_first_track_discover_format(&usb_handles, select_drive, index_sim_frequency)
+                .unwrap();
         println!("Format is probably '{:?}'", possible_formats);
     } else if cli.read {
         let track_filter = cli.track_filter;
         let track_filter = track_filter.map(|f| TrackFilter::new(&f).unwrap());
 
-        read_tracks_to_diskimage(&usb_handles, track_filter, &cli.filepath, select_drive).unwrap();
+        read_tracks_to_diskimage(
+            &usb_handles,
+            track_filter,
+            &cli.filepath,
+            select_drive,
+            index_sim_frequency,
+        )
+        .unwrap();
     } else {
         let image = image.unwrap();
 

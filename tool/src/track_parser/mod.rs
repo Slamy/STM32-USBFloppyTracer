@@ -64,10 +64,16 @@ type DynTrackParser = Box<dyn TrackParser>;
 pub fn read_first_track_discover_format(
     usb_handles: &(DeviceHandle<rusb::Context>, u8, u8),
     select_drive: DriveSelectState,
+    index_sim_frequency: u32,
 ) -> anyhow::Result<(Option<DynTrackParser>, PossibleFormats)> {
     // For some reason, the High density can read both densities on the first few cylinders...
     // This is very useful and I assume not random at all
-    configure_device(usb_handles, select_drive, Density::High, 0)?;
+    configure_device(
+        usb_handles,
+        select_drive,
+        Density::High,
+        index_sim_frequency,
+    )?;
 
     // We need to make sure to read more than we need.
     // We only have one chance here. So just get 125% of the first track with the slowest drive we support.
@@ -109,10 +115,11 @@ pub fn read_tracks_to_diskimage(
     track_filter: Option<TrackFilter>,
     filepath: &str,
     select_drive: DriveSelectState,
+    index_sim_frequency: u32,
 ) -> anyhow::Result<()> {
     let (mut track_parser, filepath) = if filepath == "justread" {
         let (possible_track_parser, possible_formats) =
-            read_first_track_discover_format(usb_handles, select_drive)?;
+            read_first_track_discover_format(usb_handles, select_drive, index_sim_frequency)?;
 
         let track_parser = possible_track_parser.context("Unable to detect floppy format!")?;
         println!("Format is probably '{:?}'", possible_formats);
@@ -143,7 +150,12 @@ pub fn read_tracks_to_diskimage(
     let track_filter = track_filter.unwrap_or_else(|| track_parser.default_trackfilter());
 
     let duration_to_record = track_parser.duration_to_record();
-    configure_device(usb_handles, select_drive, track_parser.track_density(), 0)?;
+    configure_device(
+        usb_handles,
+        select_drive,
+        track_parser.track_density(),
+        index_sim_frequency,
+    )?;
 
     let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
     let mut cylinder_end = track_filter

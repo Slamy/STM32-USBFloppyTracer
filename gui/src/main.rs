@@ -188,6 +188,7 @@ struct UsbFloppyTracerWindow {
     button_stop: Button,
     radio_drive_a: RadioLightButton,
     radio_drive_b: RadioLightButton,
+    checkbox_flippy_disk: CheckButton,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     maybe_image: Option<RawImage>,
@@ -267,6 +268,10 @@ impl UsbFloppyTracerWindow {
         radio_drive_a.set(true);
         pack2.end();
 
+        let checkbox_flippy_disk = CheckButton::default()
+            .with_label("Flippy Disk")
+            .with_size(0, 25);
+
         pack.end();
 
         let cellsize = 22;
@@ -331,6 +336,7 @@ impl UsbFloppyTracerWindow {
             button_write,
             tracklabels,
             loaded_image_path,
+            checkbox_flippy_disk,
         }
     }
 
@@ -342,11 +348,19 @@ impl UsbFloppyTracerWindow {
             .take()
             .context("USB Device still not available!")
     }
+
     fn handle(&mut self) -> anyhow::Result<()> {
         let selected_drive = if self.radio_drive_a.is_set() {
             DriveSelectState::A
         } else {
             DriveSelectState::B
+        };
+
+        // TODO better documentation here
+        let index_sim_frequency = if self.checkbox_flippy_disk.is_checked() {
+            (14 * 1000) * 1000
+        } else {
+            0
         };
 
         match self.receiver.recv() {
@@ -391,8 +405,11 @@ impl UsbFloppyTracerWindow {
                 clear_buffers(&taken_usb_handle);
 
                 let thread_handle = thread::spawn(move || {
-                    let result =
-                        read_first_track_discover_format(&taken_usb_handle, selected_drive);
+                    let result = read_first_track_discover_format(
+                        &taken_usb_handle,
+                        selected_drive,
+                        index_sim_frequency,
+                    );
 
                     let status_string = match result {
                         Ok((_possible_parser, possible_formats)) => {
@@ -450,6 +467,7 @@ impl UsbFloppyTracerWindow {
                         selected_drive,
                         sender.clone(),
                         atomic_stop,
+                        index_sim_frequency,
                     );
 
                     let status_string = match result {
@@ -473,7 +491,12 @@ impl UsbFloppyTracerWindow {
                 // still contains data. Must be removed before proceeding
                 clear_buffers(&taken_usb_handle);
 
-                configure_device(&taken_usb_handle, selected_drive, taken_image.density, 0)?;
+                configure_device(
+                    &taken_usb_handle,
+                    selected_drive,
+                    taken_image.density,
+                    index_sim_frequency,
+                )?;
                 let sender = self.sender.clone();
 
                 self.button_stop.activate();
@@ -562,9 +585,10 @@ fn read_tracks_to_diskimage(
     select_drive: DriveSelectState,
     sender: Sender<Message>,
     atomic_stop: Arc<AtomicBool>,
+    index_sim_frequency: u32,
 ) -> Result<(), anyhow::Error> {
     let (possible_track_parser, possible_formats) =
-        read_first_track_discover_format(usb_handles, select_drive)?;
+        read_first_track_discover_format(usb_handles, select_drive, index_sim_frequency)?;
 
     let mut track_parser = possible_track_parser.context("Unable to detect floppy format!")?;
     println!("Format is probably '{:?}'", possible_formats);
@@ -577,7 +601,12 @@ fn read_tracks_to_diskimage(
 
     let track_filter = track_parser.default_trackfilter();
     let duration_to_record = track_parser.duration_to_record();
-    configure_device(usb_handles, select_drive, track_parser.track_density(), 0)?;
+    configure_device(
+        usb_handles,
+        select_drive,
+        track_parser.track_density(),
+        index_sim_frequency,
+    )?;
 
     let mut cylinder_begin = track_filter.cyl_start.unwrap_or(0);
     let mut cylinder_end = track_filter
