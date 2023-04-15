@@ -1,5 +1,11 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(let_chains)]
+#![warn(clippy::panic)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::indexing_slicing)]
+#![warn(clippy::panic_in_result_fn)]
+#![warn(clippy::unwrap_in_result)]
+#![warn(clippy::unwrap_used)]
 
 extern crate alloc;
 
@@ -109,9 +115,11 @@ impl RawCellData {
     #[must_use]
     pub fn split_in_parts<'a>(speeds: &'a DensityMap, cells: &'a [u8]) -> Vec<RawCellPart<'a>> {
         let mut parts: Vec<RawCellPart> = Vec::new();
-
         let mut offset = 0;
+
         for speed in speeds.iter() {
+            // If this fails something is really really wrong
+            #[allow(clippy::indexing_slicing)]
             let entry = RawCellPart {
                 cell_size: speed.cell_size,
                 cells: &cells[offset..speed.number_of_cellbytes + offset],

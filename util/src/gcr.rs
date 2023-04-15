@@ -33,6 +33,12 @@ const GCR_DECODE_TABLE: [u8; 32] = [
     14, 0,
 ];
 
+macro_rules! index_or_default {
+    ($a:ident [ $b:expr ]) => {
+        *$a.get($b).unwrap_or(&0)
+    };
+}
+
 pub fn to_gcr_stream<T>(byte: u8, mut sink: T)
 where
     T: FnMut(Bit),
@@ -40,8 +46,8 @@ where
     let upper_nibble = byte >> 4;
     let lower_nibble = byte & 0xf;
 
-    let mut gcr_word = u16::from(GCR_ENCODE_TABLE[upper_nibble as usize]) << 5
-        | u16::from(GCR_ENCODE_TABLE[lower_nibble as usize]);
+    let mut gcr_word = u16::from(index_or_default!(GCR_ENCODE_TABLE[upper_nibble as usize])) << 5
+        | u16::from(index_or_default!(GCR_ENCODE_TABLE[lower_nibble as usize]));
 
     for _ in 0..10 {
         sink(Bit((gcr_word & (1 << 9)) != 0));
@@ -100,8 +106,8 @@ where
                 let upper_word = (self.gcr_word_buffer >> 5) & 0b11111;
                 let lower_word = self.gcr_word_buffer & 0b11111;
 
-                let result = GCR_DECODE_TABLE[upper_word as usize] << 4
-                    | GCR_DECODE_TABLE[lower_word as usize];
+                let result = index_or_default!(GCR_DECODE_TABLE[upper_word as usize]) << 4
+                    | index_or_default!(GCR_DECODE_TABLE[lower_word as usize]);
                 (self.sink)(GcrDecoderResult::Byte(result));
             }
         }
@@ -113,7 +119,7 @@ mod tests {
     use crate::bitstream::to_bit_stream;
 
     use super::*;
-
+    #[allow(clippy::indexing_slicing)]
     #[test]
     fn gcr_decoder_table_generator() {
         // use the GCR_ENCODE_TABLE to crate the GCR_DECODER_TABLE
@@ -128,7 +134,7 @@ mod tests {
         println!("{decoder_table:?}");
         assert_eq!(GCR_DECODE_TABLE, decoder_table);
     }
-
+    #[allow(clippy::indexing_slicing)]
     #[test]
     fn gcr_decoder_table_invertibility() {
         // just to be sure. try every combination
