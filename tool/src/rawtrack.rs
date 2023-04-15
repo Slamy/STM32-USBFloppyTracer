@@ -1,7 +1,5 @@
-use core::panic;
+use anyhow::{ensure, Context};
 use std::cell::RefCell;
-
-use anyhow::Context;
 use util::{
     bitstream::to_bit_stream, fluxpulse::FluxPulseGenerator, Bit, Density, DensityMap, DiskType,
     Encoding, RawCellData, STM_TIMER_MHZ,
@@ -95,19 +93,21 @@ impl RawTrack {
         accumulator
     }
 
-    pub fn assert_fits_into_rotation(&self, rpm: f64) {
+    pub fn assert_fits_into_rotation(&self, rpm: f64) -> anyhow::Result<()> {
         let seconds_per_rotation = 60.0 / rpm;
         let duration_of_track = self.calculate_duration_of_track();
 
-        assert!(
-            duration_of_track < seconds_per_rotation,
+        ensure!(
+        duration_of_track < seconds_per_rotation,
             "Error: With {} seconds, the track {} will not fit into one single rotation of the disk!",
             duration_of_track, self.cylinder
         );
+
+        Ok(())
     }
 
-    pub fn check_writability(&self) -> bool {
-        let Some(first_cell_size) = self.densitymap.get(0) else {return false;};
+    pub fn check_writability(&self) -> anyhow::Result<()> {
+        let first_cell_size = self.densitymap.get(0).context("Missing densitymap data")?;
         let first_cell_size = first_cell_size.cell_size.0;
 
         let minimum_allowed_cell_size = match self.encoding {
@@ -115,7 +115,7 @@ impl RawTrack {
                 // Abort this for GCR as currently every GCR stream is writable
                 // If pauses are too long, they will be filled up with weak bits.
                 // Pauses can't be too short for GCR as we are working with full cells
-                return true;
+                return Ok(());
             }
             // With MFM this is a different story as we are working with half cells.
             // The drive mechanism expects us to have at least one half cell pause
@@ -124,7 +124,8 @@ impl RawTrack {
             util::Encoding::MFM => first_cell_size + 40,
         };
 
-        let cell_data_parts = RawCellData::split_in_parts(&self.densitymap, &self.raw_data);
+        let cell_data_parts = RawCellData::split_in_parts(&self.densitymap, &self.raw_data)
+            .context("Failed to split raw cell data")?;
         let track_offset = RefCell::new(0);
         let mut is_writable = true;
 
@@ -186,7 +187,9 @@ impl RawTrack {
             }
         }
 
-        is_writable
+        ensure!(is_writable, "Image not writable");
+
+        Ok(())
     }
 }
 

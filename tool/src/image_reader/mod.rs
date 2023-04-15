@@ -148,8 +148,8 @@ mod tests {
                 util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
             };
 
-            track.assert_fits_into_rotation(rpm);
-            track.check_writability();
+            track.assert_fits_into_rotation(rpm).unwrap();
+            track.check_writability().unwrap();
 
             context.consume(u32::to_le_bytes(track.cylinder));
             context.consume(u32::to_le_bytes(track.head));

@@ -113,16 +113,18 @@ pub struct RawCellData {
 
 impl RawCellData {
     #[must_use]
-    pub fn split_in_parts<'a>(speeds: &'a DensityMap, cells: &'a [u8]) -> Vec<RawCellPart<'a>> {
+    pub fn split_in_parts<'a>(
+        speeds: &'a DensityMap,
+        cells: &'a [u8],
+    ) -> Option<Vec<RawCellPart<'a>>> {
         let mut parts: Vec<RawCellPart> = Vec::new();
         let mut offset = 0;
 
         for speed in speeds.iter() {
             // If this fails something is really really wrong
-            #[allow(clippy::indexing_slicing)]
             let entry = RawCellPart {
                 cell_size: speed.cell_size,
-                cells: &cells[offset..speed.number_of_cellbytes + offset],
+                cells: cells.get(offset..speed.number_of_cellbytes + offset)?,
             };
             parts.push(entry);
 
@@ -132,17 +134,22 @@ impl RawCellData {
         // just to be sure that the separate parts in sum are equal to the total number
         assert_eq!(offset, cells.len());
 
-        parts
+        Some(parts)
     }
-    #[must_use]
-    pub fn construct(speeds: DensityMap, cells: Vec<u8>, has_non_flux_reversal_area: bool) -> Self {
-        RawCellDataBuilder {
+
+    pub fn construct(
+        speeds: DensityMap,
+        cells: Vec<u8>,
+        has_non_flux_reversal_area: bool,
+    ) -> Option<Self> {
+        RawCellDataTryBuilder {
             speeds,
             cells,
             has_non_flux_reversal_area,
-            parts_builder: |cells, speeds| Self::split_in_parts(speeds, cells),
+            parts_builder: |cells, speeds| Self::split_in_parts(speeds, cells).ok_or(()),
         }
-        .build()
+        .try_build()
+        .ok()
     }
 }
 

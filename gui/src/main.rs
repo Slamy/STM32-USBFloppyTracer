@@ -36,7 +36,7 @@ use tool::{
     usb_commands::{configure_device, read_raw_track, wait_for_answer, write_raw_track},
     usb_device::{clear_buffers, init_usb},
 };
-use util::DriveSelectState;
+use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
 
 struct Tools {
     usb_handles: (DeviceHandle<rusb::Context>, u8, u8),
@@ -540,7 +540,18 @@ impl UsbFloppyTracerWindow {
                     })));
                 }));
             }
-            Some(Message::LoadFile(filepath)) => match parse_image(&filepath) {
+            Some(Message::LoadFile(filepath)) => match parse_image(&filepath).and_then(|x| {
+                let rpm = match x.disk_type {
+                    util::DiskType::Inch3_5 => DRIVE_3_5_RPM,
+                    util::DiskType::Inch5_25 => DRIVE_5_25_RPM,
+                };
+
+                for track in &x.tracks {
+                    track.assert_fits_into_rotation(rpm)?;
+                    track.check_writability()?;
+                }
+                Ok(x)
+            }) {
                 Ok(i) => {
                     self.tracklabels.black_if_existing(&i);
                     self.maybe_image = Some(i);

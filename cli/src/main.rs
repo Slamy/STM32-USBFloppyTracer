@@ -203,8 +203,8 @@ fn main() {
         }
 
         for track in &image.tracks {
-            track.assert_fits_into_rotation(rpm);
-            track.check_writability();
+            track.assert_fits_into_rotation(rpm).unwrap();
+            track.check_writability().unwrap();
         }
 
         let mut already_warned_about_wprecomp_fail = false;

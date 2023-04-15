@@ -347,7 +347,8 @@ impl<B: UsbBus> UsbClass<B> for FloppyTracerVendorClass<'_, B> {
                             speeds,
                             recv_buffer,
                             self.has_non_flux_reversal_area,
-                        ),
+                        )
+                        .expect("Program flow error"),
                         write_precompensation: self.write_precompensation,
                     };
 
