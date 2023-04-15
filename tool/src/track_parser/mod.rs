@@ -68,10 +68,14 @@ pub fn read_first_track_discover_format(
 ) -> anyhow::Result<(Option<DynTrackParser>, PossibleFormats)> {
     // For some reason, the High density can read both densities on the first few cylinders...
     // This is very useful and I assume not random at all
+    // But there is one problem as it seems. For yet unknown reasons I can't read a flipped 5.25 inch disk
+    // with High Density as it introduces flux changes that shouldn't be there.
+    // With Double density I don't have that problem.
+    // As High Density can also be read on the first track, I believe that this is ok as well to just go for Double here.
     configure_device(
         usb_handles,
         select_drive,
-        Density::High,
+        Density::SingleDouble,
         index_sim_frequency,
     )?;
 
