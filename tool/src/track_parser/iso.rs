@@ -62,7 +62,7 @@ impl TrackParser for IsoTrackParser {
 
         let percent = match self.density {
             Density::High => 108,
-            Density::SingleDouble => 110,
+            Density::SingleDouble => 112,
         };
         duration_of_rotation_as_stm_tim_raw(rpm) * percent / 100
     }
@@ -79,7 +79,7 @@ impl TrackParser for IsoTrackParser {
         }
     }
     fn parse_raw_track(&mut self, track: &[u8]) -> anyhow::Result<TrackPayload> {
-        //println!("{:?}", track);
+        //println!("{:x?}", track);
 
         let mut mfm_words: Vec<MfmWord> = Vec::new();
         let mut mfmd = MfmDecoder::new(|f| mfm_words.push(f));
@@ -108,8 +108,6 @@ impl TrackParser for IsoTrackParser {
             if matches!(searchword, MfmWord::SyncWord) {
                 let address_mark_type = iterator.next();
 
-                //println!("{} {:x?}", awaiting_dam, address_mark_type);
-
                 match address_mark_type {
                     Some(MfmWord::Enc(ISO_IDAM)) => {
                         sector_header.clear();
@@ -127,7 +125,7 @@ impl TrackParser for IsoTrackParser {
                         crc.update(&sector_header);
                         let crc16 = crc.get();
                         if crc16 == 0 {
-                            //println!("Got sector header {:?}", sector_header);
+                            log::debug!("Got sector header {:?}", sector_header);
                             // Did we get this sector yet?
                             let collected_sectors = self
                                 .collected_sectors
@@ -139,18 +137,26 @@ impl TrackParser for IsoTrackParser {
                                 .any(|f| f.index == u32::from(sector_index))
                             {
                                 number_of_duplicate_sector_headers_found_in_stream += 1;
+                            } else if ensure_index!(sector_header[0]) as u32
+                                != self.expected_cylinder.context(program_flow_error!())?
+                            {
+                                log::warn!(
+                                    "Expected cylinder {} but got sector from cylinder {}",
+                                    self.expected_cylinder.context(program_flow_error!())?,
+                                    ensure_index!(sector_header[0])
+                                );
                             } else {
                                 // Activate DAM reading for the next 40 data bytes
                                 awaiting_dam = 40;
                             }
-                            ensure!(
-                                ensure_index!(sector_header[0]) as u32
-                                    == self.expected_cylinder.context(program_flow_error!())?
-                            );
+
                             ensure!(
                                 ensure_index!(sector_header[1]) as u32
-                                    == self.expected_head.context(program_flow_error!())?
+                                    == self.expected_head.context(program_flow_error!())?,
+                                "Unexpected head in sector header!"
                             );
+                        } else {
+                            log::error!("IDAM CRC Error Sector {}", sector_index);
                         }
                     }
                     Some(MfmWord::Enc(ISO_DAM)) if awaiting_dam > 0 => {
@@ -161,7 +167,7 @@ impl TrackParser for IsoTrackParser {
                             if let Some(MfmWord::Enc(val)) = iterator.next() {
                                 sector_data.push(val);
                             } else {
-                                println!("Early end!");
+                                log::warn!("Early end!");
                                 break;
                             }
                         }
@@ -191,7 +197,7 @@ impl TrackParser for IsoTrackParser {
                                 break;
                             }
                         } else {
-                            println!("CRC Error Sector {}", sector_index);
+                            log::warn!("DAM CRC Error Sector {}", sector_index);
                         }
                     }
                     _ => {}

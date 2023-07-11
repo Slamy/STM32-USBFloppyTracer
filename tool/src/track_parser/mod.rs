@@ -99,16 +99,21 @@ pub fn read_first_track_discover_format(
 
     for mut parser in track_parsers {
         parser.expect_track(cylinder, head);
-        let track = parser.parse_raw_track(&raw_data).ok();
 
-        if let Some(_track) = track {
-            possible_formats.push(parser.format_name().into());
+        log::debug!("Trying format {}", parser.format_name());
 
-            let old = possible_track_parser.replace(parser);
-            if old.is_some() {
-                println!("Warning: Multiple possible formats ?!?!?!?!")
+        let possible_track = parser.parse_raw_track(&raw_data);
+        match possible_track {
+            Ok(_track) => {
+                possible_formats.push(parser.format_name().into());
+
+                let old = possible_track_parser.replace(parser);
+                if old.is_some() {
+                    log::warn!("Warning: Multiple possible formats ?!?!?!?!")
+                }
             }
-        }
+            Err(x) => log::debug!("Parsing aborted: {}", x),
+        };
     }
 
     Ok((possible_track_parser, possible_formats))

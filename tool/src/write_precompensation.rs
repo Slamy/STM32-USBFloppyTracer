@@ -108,7 +108,7 @@ pub fn calibration(
             .iter_mut()
             .find(|f| f.cylinder == forced_cylinder);
 
-        let mut track: &mut RawTrack = if let Some(x) = possible_track {
+        let track: &mut RawTrack = if let Some(x) = possible_track {
             x
         } else {
             println!("Just use the last track...");

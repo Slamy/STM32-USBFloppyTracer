@@ -177,6 +177,7 @@ fn write_debug_text_file(path: &str, image: &RawImage) {
 }
 
 fn main() {
+    env_logger::init();
     let cli = Args::parse();
 
     let image = if cli.read {
