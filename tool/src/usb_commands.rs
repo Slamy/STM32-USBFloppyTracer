@@ -51,6 +51,36 @@ pub fn configure_device(
     Ok(())
 }
 
+pub fn measure_ticks_per_rotation(
+    handles: &(DeviceHandle<rusb::Context>, u8, u8),
+    select_drive: DriveSelectState,
+) -> anyhow::Result<u32> {
+    configure_device(handles, select_drive, Density::High, 0)?;
+
+    let (handle, _, endpoint_out) = handles;
+    let timeout = Duration::from_secs(10);
+
+    let mut command_buf = [0u8; 64];
+    let mut writer = command_buf.chunks_mut(4);
+
+    writer
+        .next()
+        .context(program_flow_error!())?
+        .clone_from_slice(&u32::to_le_bytes(0x1234_0005));
+
+    handle
+        .write_bulk(*endpoint_out, &command_buf, timeout)
+        .context("Write Bulk Transfer failed - USB Problem?")?;
+
+    let result = wait_for_answer(handles)?;
+
+    if let UsbAnswer::RotationTicks { ticks } = result {
+        Ok(ticks)
+    } else {
+        bail!("Unexpected response!");
+    }
+}
+
 pub fn read_raw_track(
     handles: &(DeviceHandle<rusb::Context>, u8, u8),
     cylinder: u32,
@@ -191,6 +221,8 @@ pub enum UsbAnswer {
         writes: u32,
         reads: u32,
         max_err: u32,
+        similarity_threshold: u32,
+        match_after_pulses: u32,
         write_precomp: u32,
     },
     Fail {
@@ -202,6 +234,9 @@ pub enum UsbAnswer {
     },
     GotCmd,
     WriteProtected,
+    RotationTicks {
+        ticks: u32,
+    },
 }
 
 pub fn wait_for_answer(
@@ -220,13 +255,20 @@ pub fn wait_for_answer(
     let response_split: Vec<&str> = response_text.split(' ').collect();
 
     Ok(match ensure_index!(response_split[0]) {
+        "RotationTicks" => {
+            let ticks = ensure_index!(response_split[1]).parse()?;
+
+            UsbAnswer::RotationTicks { ticks }
+        }
         "WrittenAndVerified" => {
             let cylinder = ensure_index!(response_split[1]).parse()?;
             let head = ensure_index!(response_split[2]).parse()?;
             let writes = ensure_index!(response_split[3]).parse()?;
             let reads = ensure_index!(response_split[4]).parse()?;
             let max_err = ensure_index!(response_split[5]).parse()?;
-            let write_precomp = ensure_index!(response_split[6]).parse()?;
+            let similarity_threshold: u32 = ensure_index!(response_split[6]).parse()?;
+            let match_after_pulses: u32 = ensure_index!(response_split[7]).parse()?;
+            let write_precomp: u32 = ensure_index!(response_split[8]).parse()?;
 
             UsbAnswer::WrittenAndVerified {
                 cylinder,
@@ -234,6 +276,8 @@ pub fn wait_for_answer(
                 writes,
                 reads,
                 max_err,
+                similarity_threshold,
+                match_after_pulses,
                 write_precomp,
             }
         }

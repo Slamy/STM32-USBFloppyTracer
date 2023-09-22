@@ -6,15 +6,16 @@ use rusb::{Context, DeviceHandle};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process::exit;
+use tool::drive_speed::{get_timer_ticks_per_rotation, store_timer_ticks_per_rotation};
 use tool::image_reader::parse_image;
 use tool::rawtrack::{RawImage, TrackFilter};
 use tool::track_parser::read_first_track_discover_format;
 use tool::track_parser::read_tracks_to_diskimage;
-use tool::usb_commands::configure_device;
+use tool::usb_commands::{configure_device, measure_ticks_per_rotation};
 use tool::usb_commands::{wait_for_answer, write_raw_track};
 use tool::usb_device::{clear_buffers, init_usb};
 use tool::write_precompensation::{calibration, WritePrecompDb};
-use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM};
+use util::{DriveSelectState, DRIVE_3_5_RPM, DRIVE_5_25_RPM, STM_TIMER_HZ, STM_TIMER_MHZ};
 
 #[derive(Parser, Debug)]
 #[command(author, about, long_about = None)]
@@ -75,17 +76,22 @@ fn write_and_verify_image(
                     writes,
                     reads,
                     max_err,
+                    similarity_threshold,
+                    match_after_pulses,
                     write_precomp,
                 } => {
                     println!(
-                    "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
-                    cylinder,
-                head,
-                writes,
-                reads,
-                max_err,
-                write_precomp,
-                );
+                        "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{}/{}, match after {} pulses, write_precomp:{}",
+                        cylinder,
+                    head,
+                    writes,
+                    reads,
+                    max_err,
+                    similarity_threshold,
+                    match_after_pulses,
+                    write_precomp,
+
+                    );
 
                     if let Some(track) = expected_to_verify {
                         ensure!(track.cylinder == cylinder);
@@ -115,6 +121,9 @@ fn write_and_verify_image(
                     break;
                 }
                 tool::usb_commands::UsbAnswer::WriteProtected => bail!("Disk is write protected!"),
+                tool::usb_commands::UsbAnswer::RotationTicks { ticks: _ } => {
+                    bail!("Unexpected answer!")
+                }
             }
         }
     }
@@ -250,13 +259,41 @@ fn main() {
         panic!("No drive selected! Please specifiy with -a or -b");
     };
 
-    let index_sim_frequency = if let Some(flippy_param) = cli.flippy {
-        (14 * 1000 - flippy_param) * 1000
+    let index_sim_frequency: u32 = if let Some(flippy_param) = cli.flippy {
+        let freq = get_timer_ticks_per_rotation(select_drive) - flippy_param * STM_TIMER_MHZ as u32;
+        println!("Index sim frequency is {} timer ticks", freq);
+        freq
     } else {
         0
     };
 
-    if cli.read && cli.filepath == "discover" {
+    if cli.read && cli.filepath == "rpm" {
+        let mut accumulator = 0;
+
+        for _ in 0..10 {
+            let ticks_per_rotation =
+                measure_ticks_per_rotation(&usb_handles, select_drive).unwrap();
+
+            if ticks_per_rotation == 0 {
+                panic!("No index pulse detected!");
+            }
+            let rps = STM_TIMER_HZ / (ticks_per_rotation as f64);
+            let rpm = rps * 60.0;
+
+            println!(
+                "{} ticks per rotation -> {:.2} rps -> {:.2} rpm",
+                ticks_per_rotation, rps, rpm
+            );
+
+            accumulator += ticks_per_rotation;
+        }
+        let avg_ticks_per_rotation = accumulator / 10;
+
+        println!("Average timer ticks per rotation is {avg_ticks_per_rotation}");
+        if store_timer_ticks_per_rotation(select_drive, avg_ticks_per_rotation).is_err() {
+            println!("Unable to store drive speed configuration!");
+        }
+    } else if cli.read && cli.filepath == "discover" {
         println!("Let me see...");
         let (_possible_track_parser, possible_formats) =
             read_first_track_discover_format(&usb_handles, select_drive, index_sim_frequency)

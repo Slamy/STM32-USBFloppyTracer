@@ -36,6 +36,7 @@ macro_rules! ensure_index_mut {
 pub mod image_reader;
 pub mod track_parser;
 
+pub mod drive_speed;
 pub mod rawtrack;
 pub mod usb_commands;
 pub mod usb_device;

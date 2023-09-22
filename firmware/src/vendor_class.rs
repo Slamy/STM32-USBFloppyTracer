@@ -31,6 +31,7 @@ pub enum Command {
         duration_to_record: u32,
         wait_for_index: bool,
     },
+    MeasureRpm,
 }
 
 /// taken from usbd_serial::CdcAcmClass and stripped down to the minimum but still compatible
@@ -184,7 +185,7 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
                         .borrow_mut()
                         .as_ref()
                         .expect("Program flow error")
-                        .configure(index_sim_frequency);
+                        .configure_index_sim(index_sim_frequency);
 
                     let mut floppy_control_borrow =
                         interrupts::FLOPPY_CONTROL.borrow(cs).borrow_mut();
@@ -229,6 +230,14 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
 
                 let old_command = self.current_command.replace(new_command);
 
+                // Last command shall be not existing.
+                // If it exists, it was dropped now, which is not good
+                assert!(old_command.is_none());
+            }
+            // measure rpm
+            0x1234_0005 => {
+                let new_command = Command::MeasureRpm;
+                let old_command = self.current_command.replace(new_command);
                 // Last command shall be not existing.
                 // If it exists, it was dropped now, which is not good
                 assert!(old_command.is_none());

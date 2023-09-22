@@ -65,38 +65,51 @@ It seems that C64 images are rarely delivered as G64 file. Instead we usually ge
 
 | Name                                         | MD5                              | Notes                              | Copy Protection Method                   |
 |----------------------------------------------|----------------------------------|------------------------------------|------------------------------------------|
-| Katakis (Side 1).g64                         | 53c47c575d057181a1911e6653229324 | Green Level 2. Broken protection*  | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| Katakis (Side 1).g64                         | 53c47c575d057181a1911e6653229324 | Green Level 2. Broken protection\* | Rainbow Arts (RADWAR) - Timing Exact Sync|
 | x-out_s1\[rainbow_arts_1989\]\(r2).g64       | 9785b035823c8f366a92d98bcf91544d |                                    | Weak Bits                                |
 | Turrican (Europe) (Alt 1) (Side 1).g64       | 79edb43946e428ba8000f21681a825dd |                                    |                                          |
 | Turrican (Europe) (Alt 1) (Side 2).g64       | fa58c3d902af0b6f5027fcb560fababd |                                    |                                          |
 
 #### G64 files premastered
 
-| Name                                                   | MD5                              | Notes                             | Copy Protection Method                   |
-|--------------------------------------------------------|----------------------------------|-----------------------------------|------------------------------------------|
-| turrican_ii_s1\[rainbow_arts_1991\]\(!).g64            | 43d928ad9c0791e6fa0b0e73a50757fe |                                   |                                          |
-| turrican_ii_s2\[rainbow_arts_1991\]\(!).g64            | bd88b076129238f688f88757a6bfa4b5 |                                   |                                          |
-| turrican_s1\[rainbow_arts_1990\]\(pal)\(!).g64         | 3904bf094cd24e1c32dcf0588aeb53ec |                                   |                                          |
-| turrican_s2\[rainbow_arts_1990\]\(pal)\(!).g64         | 15e3c8ec7f40b85b8cd3de3fd5cc692d |                                   |                                          |
-| nebulus\[hewson_1987\]\(pal).g64                       | 0290df644e609e0ecb50ca7ae868c396 | The loader is weird.              |                                          |
-| x-out_s1\[rainbow_arts_1989\]\(!).g64                  | 6780f6fab0e8e69a804921bcc8834382 |                                   |                                          |
-| cybernoid_ii\[hewson_1988\].g64                        | 01585840dbe6962361eabdb8b2d34025 |                                   |                                          |
-| katakis_s1\[rainbow_arts_1988\]\(r1)(!).g64            | 406d29151e7001f6bfc7d95b7ade799d | Green Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| katakis_s1\[rainbow_arts_1988\]\(r1)(alt).g64          | d2aa92ccf3531fc995e771be91a45241 | White Level 2. Broken protection* | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| thrust\[firebird_1986\]\(pal).g64                      | 53f9553277c4c526c509b88af56a837f |                                   |                                          |
-| Great_Giana_Sisters_The.g64                            | c2334233136c523b9ec62beb8bea1e00 | Broken protection*                | Rainbow Arts (RADWAR) - Timing Exact Sync|
-| mr_robot_factory\[datamost_1983\].g64                  | 2ead4cc911d984120659c876e8d2ea1d | Very slow loading                 |                                          |
-| mayhem_in_monsterland_s1\[apex_1993\]\(pal).g64        | a3c10eb5c590ba8bd5c9bb8e0a08226c | Additional code sheet required.   |                                          |
-| mayhem_in_monsterland_s2\[apex_1993\]\(pal)(!).g64     | 321194b397e8f6d7ae8d60841dc5d9ac |                                   |                                          |
-| impossible_mission\[epyx_1984\]\(pal\)(!).g64          | 5d97d83a7caf5ad2ddbace6c2504b436 | Bumps head while loading!         |                                          |
-| r-type_s1\[electric_dreams_1988]\(pal\)(!).g64         | db2a2d351f5701746c7af0806c8de389 | Bumps head while loading!         |                                          |
-| r-type_s2\[electric_dreams_1988]\(pal\)(!).g64         | 259f2c7cd4bfefe32e6ca1b66df6a983 |                                   |                                          |
-| lode_runner\[br0derbund_1983\]\(00)(black_label)(!).g64| f10fb40754b73a57c2e38957215e76ce | Bumps head while loading!         |                                          |
-| boulder_dash\[first_star_1984\]\(pal)(!).g64           | b8350b9d1cc76a33e99218b446695a97 |                                   |                                          |
-| armalyte_s1\[thalamus_1988\]\(pal)(!).g64              | 8dd4bfe82f254b2dbf5fd4998e406e12 |                                   |                                          |
-| armalyte_s2\[thalamus_1988\]\(pal)(!).g64              | 725858316042378290db0c41842f94e9 |                                   |                                          |
+| Name                                                   | MD5                              | Notes                                                           | Copy Protection Method                   |
+|--------------------------------------------------------|----------------------------------|-----------------------------------------------------------------|------------------------------------------|
+| turrican_ii_s1\[rainbow_arts_1991\]\(!).g64            | 43d928ad9c0791e6fa0b0e73a50757fe |                                                                 |                                          |
+| turrican_ii_s2\[rainbow_arts_1991\]\(!).g64            | bd88b076129238f688f88757a6bfa4b5 |                                                                 |                                          |
+| turrican_s1\[rainbow_arts_1990\]\(pal)\(!).g64         | 3904bf094cd24e1c32dcf0588aeb53ec |                                                                 |                                          |
+| turrican_s2\[rainbow_arts_1990\]\(pal)\(!).g64         | 15e3c8ec7f40b85b8cd3de3fd5cc692d |                                                                 |                                          |
+| nebulus\[hewson_1987\]\(pal).g64                       | 0290df644e609e0ecb50ca7ae868c396 | The loader is weird.                                            |                                          |
+| x-out_s1\[rainbow_arts_1989\]\(!).g64                  | 6780f6fab0e8e69a804921bcc8834382 |                                                                 |                                          |
+| cybernoid_ii\[hewson_1988\].g64                        | 01585840dbe6962361eabdb8b2d34025 |                                                                 |                                          |
+| katakis_s1\[rainbow_arts_1988\]\(r1)(!).g64            | 406d29151e7001f6bfc7d95b7ade799d | Green Level 2. Broken protection\*                              | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| katakis_s1\[rainbow_arts_1988\]\(r1)(alt).g64          | d2aa92ccf3531fc995e771be91a45241 | White Level 2. Broken protection\*. Corrupt highscore table.\*\*| Rainbow Arts (RADWAR) - Timing Exact Sync|
+| thrust\[firebird_1986\]\(pal).g64                      | 53f9553277c4c526c509b88af56a837f |                                                                 |                                          |
+| Great_Giana_Sisters_The.g64                            | c2334233136c523b9ec62beb8bea1e00 | Broken protection\*                                             | Rainbow Arts (RADWAR) - Timing Exact Sync|
+| mr_robot_factory\[datamost_1983\].g64                  | 2ead4cc911d984120659c876e8d2ea1d | Very slow loading                                               |                                          |
+| mayhem_in_monsterland_s1\[apex_1993\]\(pal).g64        | a3c10eb5c590ba8bd5c9bb8e0a08226c | Additional code sheet required.                                 |                                          |
+| mayhem_in_monsterland_s2\[apex_1993\]\(pal)(!).g64     | 321194b397e8f6d7ae8d60841dc5d9ac |                                                                 |                                          |
+| impossible_mission\[epyx_1984\]\(pal\)(!).g64          | 5d97d83a7caf5ad2ddbace6c2504b436 | Bumps head while loading!                                       |                                          |
+| r-type_s1\[electric_dreams_1988]\(pal\)(!).g64         | db2a2d351f5701746c7af0806c8de389 | Bumps head while loading!                                       |                                          |
+| r-type_s2\[electric_dreams_1988]\(pal\)(!).g64         | 259f2c7cd4bfefe32e6ca1b66df6a983 |                                                                 |                                          |
+| lode_runner\[br0derbund_1983\]\(00)(black_label)(!).g64| f10fb40754b73a57c2e38957215e76ce | Bumps head while loading!                                       |                                          |
+| boulder_dash\[first_star_1984\]\(pal)(!).g64           | b8350b9d1cc76a33e99218b446695a97 |                                                                 |                                          |
+| armalyte_s1\[thalamus_1988\]\(pal)(!).g64              | 8dd4bfe82f254b2dbf5fd4998e406e12 |                                                                 |                                          |
+| armalyte_s2\[thalamus_1988\]\(pal)(!).g64              | 725858316042378290db0c41842f94e9 |                                                                 |                                          |
 
-*Some disks have a broken protection track. These are patched by the tool if found.
+\* Some disks have a broken protection track. These are patched by the tool if found.
+
+\*\* Katakis Side 1 with a md5sum of d2aa92ccf3531fc995e771be91a45241 has a damaged highscore table with scores impossible to beat.
+The score table is stored in cylinder 4.
+When comparing to the version with the green level (md5sum of 406d29151e7001f6bfc7d95b7ade799d),
+the only difference in cylinder 4 is the high score table.
+I conclude that the table can be reset/fixed by overwriting cylinder 4 with another working copy.
+
+To get the white level 2 version with a working high score table, we write the broken one first and overwrite a single cylinder from the other:
+
+	usbfloppytracer -b 'katakis_s1[rainbow_arts_1988](r1)(alt).g64'
+	usbfloppytracer -b 'katakis_s1[rainbow_arts_1988](r1)(!).g64' -t4
+
+After doing so, we are granted with a white level 2 version of Katakis and an empty highscore table.
 
 ### Amstrad CPC
 

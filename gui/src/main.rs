@@ -710,6 +710,8 @@ fn write_and_verify_image(
                     reads: _,
                     max_err: _,
                     write_precomp: _,
+                    similarity_threshold: _,
+                    match_after_pulses: _,
                 } => {
                     sender.send(Message::VerifiedTrack { cylinder, head });
 
@@ -749,6 +751,9 @@ fn write_and_verify_image(
                     break;
                 }
                 tool::usb_commands::UsbAnswer::WriteProtected => bail!("Disk is write protected!"),
+                tool::usb_commands::UsbAnswer::RotationTicks { ticks: _ } => {
+                    bail!("Unexpected answer!")
+                }
             }
         }
     }

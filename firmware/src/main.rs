@@ -29,7 +29,8 @@ use floppy_control::FloppyControl;
 use flux_reader::FluxReader;
 use flux_writer::FluxWriter;
 use heapless::spsc::Queue;
-use index_sim::IndexSim;
+use index_sim::IndexSignal;
+use interrupts::async_wait_for_index;
 use panic_persist::get_panic_message_bytes;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal::gpio::{Alternate, Edge, Output, Pin, Pull, PushPull};
@@ -46,7 +47,7 @@ use vendor_class::Command;
 static DEBUG_LED_GREEN: Mutex<RefCell<Option<Pin<'D', 12, Output>>>> =
     Mutex::new(RefCell::new(None));
 
-static INDEX_SIM: Mutex<RefCell<Option<IndexSim>>> = Mutex::new(RefCell::new(None));
+static INDEX_SIM: Mutex<RefCell<Option<IndexSignal>>> = Mutex::new(RefCell::new(None));
 
 use alloc::sync::Arc;
 use alloc_cortex_m::CortexMHeap;
@@ -109,7 +110,7 @@ fn main() -> ! {
         .into_alternate_open_drain()
         .internal_resistor(Pull::None); // index sim on PA1, connected to TIM5_CH2, AF2
 
-    let index_sim = IndexSim::new(dp.TIM5);
+    let index_sim = IndexSignal::new(dp.TIM5);
 
     // now for the floppy bus pins in the order of the connector
     let out_density_select = gpiob
@@ -255,6 +256,38 @@ fn main() -> ! {
     mainloop(usb_handler, raw_track_writer);
 }
 
+async fn measure_rpm() -> Option<u32> {
+    if async_wait_for_index().await.is_err() {
+        return None;
+    };
+
+    cortex_m::interrupt::free(|cs| {
+        INDEX_SIM
+            .borrow(cs)
+            .borrow_mut()
+            .as_ref()
+            .expect("Program flow error")
+            .measure_index_period();
+    });
+
+    if async_wait_for_index().await.is_err() {
+        return None;
+    };
+
+    let result = cortex_m::interrupt::free(|cs| {
+        INDEX_SIM
+            .borrow(cs)
+            .borrow_mut()
+            .as_ref()
+            .expect("Program flow error")
+            .get_measured_index_period()
+    });
+
+    rprintln!("cnt {}", result);
+
+    Some(result)
+}
+
 fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) -> ! {
     let mut next_command: Option<Command>;
 
@@ -301,6 +334,7 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                 let write_verify_fut = Box::pin(raw_track_writer.write_and_verify(
                     track,
                     write_precompensation,
+                    true, // TODO should be removed for speedup later on
                     raw_cell_data,
                 ));
                 let mut cm = Cassette::new(write_verify_fut);
@@ -317,16 +351,18 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
                     Ok(WriteVerifySuccess {
                         write_operations,
                         verify_operations,
-                        max_err,
                         write_precompensation,
+                        successful_verify,
                     }) => {
                         format!(
-                            "WrittenAndVerified {} {} {} {} {} {}",
+                            "WrittenAndVerified {} {} {} {} {} {} {} {}",
                             track.cylinder.0,
                             track.head.0,
                             write_operations,
                             verify_operations,
-                            max_err.0,
+                            successful_verify.max_err.0,
+                            successful_verify.similarity_treshold.0,
+                            successful_verify.match_after_pulses,
                             write_precompensation.0
                         )
                     }
@@ -342,7 +378,33 @@ fn mainloop(mut usb_handler: UsbHandler, mut raw_track_writer: RawTrackHandler) 
 
                 usb_handler.vendor_class.response(&str_response);
             }
-            _ => {}
+            Some(Command::MeasureRpm) => {
+                cortex_m::interrupt::free(|cs| {
+                    interrupts::FLOPPY_CONTROL
+                        .borrow(cs)
+                        .borrow_mut()
+                        .as_mut()
+                        .expect("Program flow error")
+                        .spin_motor();
+                });
+
+                let write_verify_fut = Box::pin(measure_rpm());
+                let mut cm = Cassette::new(write_verify_fut);
+
+                let ticks_per_rotation = loop {
+                    usb_handler.handle();
+
+                    if let Some(result) = cm.poll_on() {
+                        break result;
+                    }
+                }
+                .unwrap_or(0);
+
+                usb_handler
+                    .vendor_class
+                    .response(&format!("RotationTicks {}", ticks_per_rotation));
+            }
+            None => {}
         }
     }
 }

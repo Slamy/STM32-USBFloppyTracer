@@ -26,7 +26,7 @@ pub fn calibration(
     let cylinders_to_calibrate = vec![0, 10, 20, 30, 39, 40, 41, 42, 43, 44, 50, 60, 70, 75, 79];
 
     let maximum_write_precompensation = match (image.density, image.disk_type) {
-        (Density::High, util::DiskType::Inch3_5) => 12,
+        (Density::High, util::DiskType::Inch3_5) => 14,
         (Density::SingleDouble, util::DiskType::Inch3_5) => 22,
         (Density::SingleDouble, util::DiskType::Inch5_25) => 14,
         (_, _) => bail!("Unsupported for write precompensation!"),
@@ -54,13 +54,15 @@ pub fn calibration(
             match ensure_index!(response_split[0]) {
                 "WrittenAndVerified" => {
                     println!(
-                        "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{} write_precomp:{}",
+                        "Verified write of cylinder {} head {} - writes:{}, reads:{}, max_err:{}/{}, match after {} pulses, write_precomp:{}",
                         ensure_index!(response_split[1]),
                         ensure_index!(response_split[2]),
                         ensure_index!(response_split[3]),
                         ensure_index!(response_split[4]),
                         ensure_index!(response_split[5]),
                         ensure_index!(response_split[6]),
+                        ensure_index!(response_split[7]),
+                        ensure_index!(response_split[8]),
                     );
 
                     let track: usize = ensure_index!(response_split[1]).parse()?;
@@ -173,7 +175,7 @@ impl WritePrecompDb {
             .context("Home Directoy not available")?
             .join(".usbfloppytracer/wprecomp.cfg");
 
-        println!("Reading config from {wprecomp_path:?}");
+        println!("Reading write precompensation from {wprecomp_path:?}");
         let file = File::open(wprecomp_path).map_err(|f| {
             println!("Write precompensation not used... {f}");
             f

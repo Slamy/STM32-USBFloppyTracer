@@ -11,8 +11,9 @@ use util::{
 
 use crate::{
     interrupts::{
-        self, async_select_and_wait_for_track, async_wait_for_receive, async_wait_for_transmit,
-        flux_reader_stop_reception, FLUX_READER, START_RECEIVE_ON_INDEX, START_TRANSMIT_ON_INDEX,
+        self, async_select_and_wait_for_track, async_wait_for_index, async_wait_for_receive,
+        async_wait_for_transmit, flux_reader_stop_reception, FLUX_READER, START_RECEIVE_ON_INDEX,
+        START_TRANSMIT_ON_INDEX,
     },
     rprintln,
     usb::UsbHandler,
@@ -38,11 +39,17 @@ pub struct WriteVerifyError {
     pub verify_operations: u8,
 }
 
+pub struct VerifySuccess {
+    pub similarity_treshold: PulseDuration,
+    pub match_after_pulses: usize,
+    pub max_err: PulseDuration,
+}
+
 pub struct WriteVerifySuccess {
     pub write_operations: u8,
     pub verify_operations: u8,
     pub write_precompensation: PulseDuration,
-    pub max_err: PulseDuration,
+    pub successful_verify: VerifySuccess,
 }
 
 impl RawTrackHandler {
@@ -74,6 +81,7 @@ impl RawTrackHandler {
         &mut self,
         track: Track,
         write_precompensation: PulseDuration,
+        extra_degauss: bool,
         mut raw_cell_data: RawCellData,
     ) -> Result<WriteVerifySuccess, WriteVerifyError> {
         async_select_and_wait_for_track(track).await;
@@ -108,7 +116,7 @@ impl RawTrackHandler {
             write_operations += 1;
 
             raw_cell_data = self
-                .write_track(write_precompensation, raw_cell_data)
+                .write_track(write_precompensation, extra_degauss, raw_cell_data)
                 .await
                 .map_err(|error| WriteVerifyError {
                     error,
@@ -122,12 +130,12 @@ impl RawTrackHandler {
                 let verify_result = self.verify_track(raw_cell_data).await;
 
                 match verify_result {
-                    Ok(max_err) => {
+                    Ok(verify_success) => {
                         return Ok(WriteVerifySuccess {
                             write_operations,
                             verify_operations,
                             write_precompensation,
-                            max_err,
+                            successful_verify: verify_success,
                         });
                     }
                     Err((RawTrackError::DataNotEqual, track)) => {
@@ -199,9 +207,9 @@ impl RawTrackHandler {
     async fn write_track(
         &mut self,
         write_precompensation: PulseDuration,
+        extra_degauss: bool,
         track_data_to_write: RawCellData,
     ) -> Result<RawCellData, RawTrackError> {
-        // keep it spinning!
         cortex_m::interrupt::free(|cs| {
             interrupts::FLUX_WRITER
                 .borrow(cs)
@@ -214,7 +222,7 @@ impl RawTrackHandler {
             // Avoids having old data at the end of the track
             // which might cause confusion during reading without
             // index alignment. Amiga and C64 are prone to this problem
-            // as they just ignore the index signal during reading and writing.
+            // as they ignore the index signal during reading and writing.
             interrupts::FLUX_WRITER
                 .borrow(cs)
                 .borrow_mut()
@@ -222,6 +230,7 @@ impl RawTrackHandler {
                 .expect("Program flow error")
                 .enable_write_head();
 
+            // keep it spinning!
             interrupts::FLOPPY_CONTROL
                 .borrow(cs)
                 .borrow_mut()
@@ -229,6 +238,17 @@ impl RawTrackHandler {
                 .expect("Program flow error")
                 .spin_motor();
         });
+
+        if extra_degauss {
+            // To be safe, we degauss the whole track.
+            // There has to be a better way to do this... but some games really have problems...
+            // Maybe I should fill up a short track to the end to avoid having thrash somewhere
+            // which can confuse a loader.
+            if async_wait_for_index().await.is_err() {
+                rprintln!("Index timeout? Drive not responsing.");
+                return Err(RawTrackError::NoIndexPulse);
+            }
+        }
 
         // prefill output buffer
         let mut parts = track_data_to_write.borrow_parts().iter();
@@ -433,7 +453,7 @@ impl RawTrackHandler {
     async fn verify_track(
         &mut self,
         track_data_to_write: RawCellData,
-    ) -> Result<PulseDuration, (RawTrackError, RawCellData)> {
+    ) -> Result<VerifySuccess, (RawTrackError, RawCellData)> {
         // Size of sliding window, containing the significant data we use, trying
         // to match the data we read back against the groundtruth data we thought
         // to have written before
@@ -687,6 +707,13 @@ impl RawTrackHandler {
             similarity_treshold,
             match_after_pulses
         );
-        Ok(PulseDuration(maximum_diff as i32))
+
+        let result = VerifySuccess {
+            similarity_treshold: PulseDuration(similarity_treshold),
+            max_err: PulseDuration(maximum_diff as i32),
+            match_after_pulses,
+        };
+
+        Ok(result)
     }
 }

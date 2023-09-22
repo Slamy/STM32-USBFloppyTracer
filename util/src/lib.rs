@@ -70,9 +70,14 @@ pub struct DensityMapEntry {
 pub const DRIVE_5_25_RPM: f64 = 361.0; // Normally 360 RPM would be correct. But the drive might be faster. Let's be safe here.
 pub const DRIVE_3_5_RPM: f64 = 300.05; // Normally 300 RPM would be correct. But the drive might be faster. Let's be safe here.
 pub const DRIVE_SLOWEST_RPM: f64 = DRIVE_3_5_RPM; // If the drive is not known, we use this for reading.
+pub const DRIVE_5_25_RPS: f64 = 6.0; // 360 RPM would be 6 RPS
+pub const DRIVE_3_5_RPS: f64 = 5.0; // 300 RPM would be 5 RPS
 
 pub const STM_TIMER_MHZ: f64 = 84.0;
 pub const STM_TIMER_HZ: f64 = 84e6;
+
+pub const DRIVE_5_25_TIMER_TICKS_PER_ROTATION: u32 = (STM_TIMER_HZ / DRIVE_5_25_RPS) as u32; // Number of clock ticks per rotation
+pub const DRIVE_3_5_TIMER_TICKS_PER_ROTATION: u32 = (STM_TIMER_HZ / DRIVE_3_5_RPS) as u32; // Number of clock ticks per rotation
 
 pub const PULSE_REDUCE_SHIFT: usize = 3;
 
