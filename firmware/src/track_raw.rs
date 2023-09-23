@@ -1,3 +1,5 @@
+//! State machines for writing, reading and matching of track data
+
 use core::{cell::RefCell, cmp::max, future::Future, mem, task::Poll};
 
 use alloc::{collections::VecDeque, vec::Vec};
@@ -19,36 +21,59 @@ use crate::{
     usb::UsbHandler,
 };
 
+/// Collection of FIFOs which are needed to write and read pulses from the floppy
 pub struct RawTrackHandler {
+    /// Read FIFO
     pub read_cons: Consumer<'static, u32, 512>,
+    /// Write FIFO
     pub write_prod_cell: RefCell<Producer<'static, u32, 128>>,
 }
 
 #[derive(Debug)]
+/// Error codes for handling raw track data
 pub enum RawTrackError {
+    /// No index pulse detected. No disk inserted? Motor broken? Floppy drive connected at all?
     NoIndexPulse,
+    /// No incoming pulse data
     NoIncomingData,
+    /// Unable to find the written data in the reading stream
     NoCrossCorrelation,
+    /// Verification has failed. Read data is not equal to expectation
     DataNotEqual,
+    /// Disk is write protected. Unable to write
     WriteProtected,
 }
 
+/// Collects an error together with the number of tries performed
 pub struct WriteVerifyError {
+    /// Reason to fail
     pub error: RawTrackError,
+    /// How many writes in total
     pub write_operations: u8,
+    /// How man reads to verify the written data
     pub verify_operations: u8,
 }
 
+/// Colects statistics for a succeded writing operation
 pub struct VerifySuccess {
+    /// Maximum acceptable deviation in 84 MHz timer ticks
     pub similarity_treshold: PulseDuration,
+    /// Position of pulse in reading data stream which was used
+    /// to match the read stream against the write stream
     pub match_after_pulses: usize,
+    /// Maxium deviation of between written and read data in timer ticks
     pub max_err: PulseDuration,
 }
 
+/// Collects statistics about a successful track write
 pub struct WriteVerifySuccess {
+    /// How many writes in total
     pub write_operations: u8,
+    /// How man reads to verify the written data
     pub verify_operations: u8,
+    /// Write precompensation in timer ticks
     pub write_precompensation: PulseDuration,
+    /// Statistics about the successful verification
     pub successful_verify: VerifySuccess,
 }
 
@@ -77,6 +102,12 @@ impl RawTrackHandler {
         })
     }
 
+    /// Asynchronous function to write and verify a raw flux track
+    /// This is a long running function with multiple operations
+    /// - Stepping the head to the selected cylinder
+    /// - Checking if the disk is write protected
+    /// - Writing a raw track
+    /// - Reading it back while trying to match against the write data
     pub async fn write_and_verify(
         &mut self,
         track: Track,
@@ -328,6 +359,10 @@ impl RawTrackHandler {
         Ok(track_data_to_write)
     }
 
+    /// Asynchronous function which steps to a given track and reads flux data for the provided
+    /// amount of time.
+    /// Set `wait_for_index` to `true` if the flux data shall be aligned to the index pulse.
+    /// If set to `false` it is much faster
     pub async fn read_track(
         &mut self,
         track: Track,

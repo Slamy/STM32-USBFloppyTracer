@@ -1,3 +1,8 @@
+//! Bidirectional communication to the Linux application running on the host
+//! This device usually idles as long as nothing is expected by the host.
+//! This code here is responsible to packing the raw byte data into more managable
+//! and safe data structures.
+
 use usb_device::class_prelude::*;
 use usb_device::Result;
 
@@ -20,35 +25,35 @@ use util::{
 
 use crate::{interrupts, rprintln, INDEX_SIM};
 
+/// Commands which are sent from the Linux application on the host
 pub enum Command {
+    /// Write and verify a track
     WriteVerifyRawTrack {
+        /// Position of track to write to
         track: Track,
+        /// Data to write
         raw_cell_data: RawCellData,
+        /// Write precompensation configuration for this write operation
         write_precompensation: PulseDuration,
     },
+    /// Read a track and returns it to Linux as pulse durations
     ReadTrack {
+        /// Position of track to read from
         track: Track,
+        /// Duration of recording in 84 MHz timer ticks
         duration_to_record: u32,
+        /// If `true` the recording will be aligend to the index signal
+        /// If `false` the recording starts immediately
         wait_for_index: bool,
     },
+    /// Measure the duration of a single rotation in 84 MHz timer ticks
+    /// and returns the result back to linux
     MeasureRpm,
 }
 
-/// taken from usbd_serial::CdcAcmClass and stripped down to the minimum but still compatible
-
-///
-/// This class can be used directly and it has the least overhead due to directly reading and
-/// writing USB packets with no intermediate buffers, but it will not act like a stream-like serial
-/// port. The following constraints must be followed if you use this class directly:
-///
-/// - `read_packet` must be called with a buffer large enough to hold max_packet_size bytes, and the
-///   method will return a `WouldBlock` error if there is no packet to be read.
-/// - `write_packet` must not be called with a buffer larger than max_packet_size bytes, and the
-///   method will return a `WouldBlock` error if the previous packet has not been sent yet.
-/// - If you write a packet that is exactly max_packet_size bytes long, it won't be processed by the
-///   host operating system until a subsequent shorter packet is sent. A zero-length packet (ZLP)
-///   can be sent if there is no other data to send. This is because USB bulk transactions must be
-///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
+/// This class handles USB communication in both directions
+/// It converts the raw frames into data structures which are used
+/// in this application
 pub struct FloppyTracerVendorClass<'a, B: UsbBus> {
     data_if: InterfaceNumber,
     read_ep: EndpointOut<'a, B>,
@@ -87,6 +92,9 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
         }
     }
 
+    /// Polls for a command which we might have received from the Host
+    /// This operation is destructive as the command is then removed from
+    /// here and expected to be processed.
     pub fn take_command(&mut self) -> Option<Command> {
         self.current_command.take()
     }
@@ -106,6 +114,7 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
         self.read_ep.read(data)
     }
 
+    /// Write a text based response to the linux application
     pub fn response(&mut self, text: &str) {
         assert!(text.len() < 60);
 
@@ -113,16 +122,22 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
         self.tx_buffer.push_back(buf);
     }
 
+    /// Transmit a single bulk frame
+    /// Maximum 64 bytes allowed
     pub fn write(&mut self, data: &[u8]) {
         assert!(data.len() <= 64);
         self.tx_buffer.push_back(data.into());
     }
 
+    /// Transmit a single bulk frame
+    /// Maximum 64 bytes allowed
     pub fn write_consume(&mut self, data: Vec<u8>) {
         assert!(data.len() <= 64);
         self.tx_buffer.push_back(data);
     }
 
+    /// Must be called frequently. If outgoing data is present
+    /// the USB controller is polled for transmission
     pub fn handle_transmit(&mut self) {
         // Some data to send?
         if let Some(front) = self.tx_buffer.front() {
@@ -132,6 +147,8 @@ impl<B: UsbBus> FloppyTracerVendorClass<'_, B> {
         }
     }
 
+    /// Called after a frame is received from the Host which is assumed
+    /// to be a command to process
     fn handle_command(&mut self, buf: &[u8]) -> Option<()> {
         let mut header = buf.chunks(4);
 

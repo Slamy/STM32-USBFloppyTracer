@@ -1,3 +1,5 @@
+//! Interpretation of flux reversal pulses
+
 use alloc::sync::Arc;
 
 use core::mem;
@@ -7,9 +9,14 @@ use heapless::Vec;
 
 use stm32f4xx_hal::pac::{DMA1, TIM2};
 
+/// Size of DMA buffer in bytes
 pub const BUFFER_SIZE: usize = 8;
 
-/*
+/**
+ * Interprets read data signal of an AT style floppy disk drive by
+ * measuring the timer ticks between two falling edges.
+ * Every falling edge is one flux change on the medium.
+ *
  * Input using Timer 2, Input Channel 3.
  * Connected to PA2.
  * Can be captured by DMA1, Channel 3, Stream 1 which reacts on the TIM2_CH3 or TIM2_UP event.
@@ -36,6 +43,8 @@ impl FluxReader {
         }
     }
 
+    /// Called when one DMA buffer was filled and the DMA master has swapped to the other one.
+    /// We need to grab the data fast, so the buffer can be used again!
     pub fn dma1_stream1_irq(&mut self, cs: &CriticalSection) {
         if self.dma1.borrow(cs).lisr.read().tcif1().is_complete() {
             self.dma_swapped_buffer_callback();
@@ -50,10 +59,12 @@ impl FluxReader {
     }
 
     #[must_use]
+    /// Returns `true` if the reading process is activated
     pub fn transmission_active(&self) -> bool {
         self.tim2.cr1.read().cen().is_enabled()
     }
 
+    /// Stops DMA and timer.
     pub fn stop_reception(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[1];
 
@@ -61,6 +72,8 @@ impl FluxReader {
         self.tim2.cr1.modify(|_, w| w.cen().clear_bit()); // disable timer
     }
 
+    /// Prepares DMA buffers, starts the DMA and the timer
+    /// to receive pulse data.
     pub fn start_reception(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[1];
 
@@ -111,6 +124,7 @@ impl FluxReader {
         self.tim2.cr1.modify(|_, w| w.cen().set_bit()); // enable timer
     }
 
+    /// Constructs this object with the provided hardware
     pub fn new(tim2: TIM2, dma1: Arc<Mutex<DMA1>>, prod: Producer<'static, u32, 512>) -> Self {
         tim2.cr1.modify(|_, w| w.dir().up()); // count up
 

@@ -1,3 +1,5 @@
+//! Writing of flux reversal pulses and general write head control
+
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::convert::Infallible;
@@ -10,11 +12,16 @@ use unwrap_infallible::UnwrapInfallible;
 
 use stm32f4xx_hal::pac::{DMA1, TIM4};
 
+/// Size of DMA buffer in bytes
 pub const BUFFER_SIZE: usize = 16;
 
 // Trackbuffer -> BitStream -> MfmEncoder -> FluxWriter
 
-/*
+/**
+ * Controls the write gate and write data pins of the floppy bus.
+ * Falling edges are produced on the write data line with the distances between
+ * them dictated by the data feeded into this.
+ *
  * Output using Timer 4, Output Channel 3.
  * Connected to PB8.
  * Can be driven by DMA1, Channel 2, Stream 6 which reacts on TIM4_UP event.
@@ -31,6 +38,7 @@ pub struct FluxWriter {
 }
 
 impl FluxWriter {
+    /// IRQ Handler for Timer 4
     pub fn tim4_irq(&mut self, cs: &CriticalSection) {
         if self.tim4.sr.read().uif().is_update_pending() {
             self.tim4_pulse_complete_callback(cs);
@@ -41,6 +49,9 @@ impl FluxWriter {
         }
     }
 
+    /// IRQ Handler for DMA1
+    /// Must be called when one DMA buffer was used and the DMA master has swapped to the other one
+    /// We need to fill up the now used buffer up with fresh data.
     pub fn dma1_stream6_irq(&mut self, cs: &CriticalSection) {
         if self.dma1.borrow(cs).hisr.read().tcif6().is_complete() {
             self.dma_swapped_buffer_callback();
@@ -88,6 +99,7 @@ impl FluxWriter {
         }
     }
 
+    /// Removes all entries from the FIFO
     pub fn clear_buffers(&mut self) {
         while self.cons.dequeue().is_some() {
             // Do nothing with the result
@@ -112,10 +124,14 @@ impl FluxWriter {
     }
 
     #[must_use]
+    /// Returns `true` if write operation is currently in progress
     pub fn transmission_active(&self) -> bool {
         self.tim4.cr1.read().cen().is_enabled()
     }
 
+    /// Prefills DMA buffers. This function must be called before transmission is started.
+    /// It is required that both DMA buffers are filled. With `BUFFER_SIZE == 16`
+    /// this means that 32 pulses must be provided using the FIFO before calling this function.
     pub fn prepare_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
@@ -182,10 +198,12 @@ impl FluxWriter {
         self.tim4.arr.write(|w| w.arr().bits(400)); // count to 200 and reset
     }
 
+    /// Activates write gate. Usefull for degaussing/erasing a track
     pub fn enable_write_head(&mut self) {
         self.write_gate.set_low().unwrap_infallible();
     }
 
+    /// Starts transmission of prefilled buffers.
     pub fn start_transmit(&mut self, cs: &CriticalSection) {
         let dma_stream = &self.dma1.borrow(cs).st[6];
 
@@ -195,6 +213,7 @@ impl FluxWriter {
         self.tim4.cr1.modify(|_, w| w.cen().set_bit()); // enable timer
     }
 
+    /// Constructs with injected dependencies
     pub fn new(
         tim4: TIM4,
         dma1: Arc<Mutex<DMA1>>,

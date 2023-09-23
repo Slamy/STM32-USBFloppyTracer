@@ -5,6 +5,9 @@
 #![warn(clippy::panic_in_result_fn)]
 #![warn(clippy::unwrap_in_result)]
 #![warn(clippy::unwrap_used)]
+#![warn(missing_docs)]
+
+//! Firmware of the USB Floppy Tracer
 
 pub mod floppy_control;
 pub mod floppy_drive_unit;
@@ -60,6 +63,7 @@ use crate::vendor_class::FloppyTracerVendorClass;
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
 #[inline(always)]
+/// Helper function for fast access to the orange led of the STM32F4 discovery board
 pub fn orange(s: bool) {
     if s {
         unsafe { (*pac::GPIOD::ptr()).bsrr.write(|w| w.bits(1 << 13)) };

@@ -1,3 +1,5 @@
+//! Handling of all slow signals on the floppy bus
+
 use core::{convert::Infallible, future::Future, pin::Pin};
 
 use alloc::boxed::Box;
@@ -18,6 +20,8 @@ use crate::{
 type FutureHeadPosition =
     Cassette<Pin<Box<dyn Future<Output = (FloppyStepperSignals, HeadPosition)> + Send>>>;
 
+/// Manages all slow signals of the floppy bus
+/// Examples are the selection of the head or the timing of the stepper motor
 pub struct FloppyControl {
     out_head_select: Box<dyn OutputPin<Error = Infallible> + Send>,
     out_density_select: Box<dyn OutputPin<Error = Infallible> + Send>,
@@ -31,6 +35,7 @@ pub struct FloppyControl {
 
 impl FloppyControl {
     #[must_use]
+    /// Construct an instance with required GPIO injected
     pub fn new(
         drive_a: FloppyDriveUnit,
         drive_b: FloppyDriveUnit,
@@ -51,6 +56,7 @@ impl FloppyControl {
         }
     }
 
+    /// Selects High our double densitiy
     pub fn select_density(&mut self, dens: Density) {
         match dens {
             Density::High => {
@@ -64,6 +70,7 @@ impl FloppyControl {
         }
     }
 
+    /// Returns `true` in case the disk can't be written because of the write protection
     pub fn write_protection_is_active(&mut self) -> bool {
         assert!(self
             .selected_drive_unit()
@@ -72,6 +79,7 @@ impl FloppyControl {
         self.in_write_protect.is_low().unwrap_infallible()
     }
 
+    /// Activate the motor of the currently selected drive
     pub fn spin_motor(&mut self) {
         if let Some(f) = self.selected_drive_unit().as_mut() {
             f.spin_motor()
@@ -79,12 +87,14 @@ impl FloppyControl {
     }
 
     #[must_use]
+    /// Returns `true` if the currently selected drives motor is active
     pub fn is_spinning(&self) -> bool {
         self.selected_drive_unit_ref()
             .as_ref()
             .map_or(false, |f| f.is_spinning())
     }
 
+    /// Returns the currently selected drive or `None`
     pub fn selected_drive_unit(&mut self) -> Option<&mut FloppyDriveUnit> {
         match self.drive_select {
             DriveSelectState::None => None,
@@ -94,6 +104,7 @@ impl FloppyControl {
     }
 
     #[must_use]
+    /// Returns the currently selected drive or `None`
     pub fn selected_drive_unit_ref(&self) -> Option<&FloppyDriveUnit> {
         match self.drive_select {
             DriveSelectState::None => None,
@@ -102,16 +113,21 @@ impl FloppyControl {
         }
     }
 
+    /// Stops the motor of the currently selected drive
     pub fn stop_motor(&mut self) {
         if let Some(f) = self.selected_drive_unit() {
             f.stop_motor()
         }
     }
 
+    /// Select a disk drive
     pub fn select_drive(&mut self, state: DriveSelectState) {
         self.drive_select = state;
     }
 
+    /// Starts an asynchronous process to step to the provided cylinder and also select the head
+    /// to provide access to the wanted `track`.
+    /// Use `reached_selected_cylinder` to check for completion
     pub fn select_track(&mut self, track: Track) {
         let selected_drive = self.selected_drive_unit().expect("Drive not selected!");
 
@@ -138,10 +154,13 @@ impl FloppyControl {
     }
 
     #[must_use]
+    /// Returns `true` if the stepping process has finished
     pub fn reached_selected_cylinder(&self) -> bool {
         self.floppy_step_progress.is_none()
     }
 
+    /// Expected to be called about every millisecond
+    /// Handles motor activation and stepping.
     pub fn run(&mut self) {
         self.drive_a.run();
         self.drive_b.run();

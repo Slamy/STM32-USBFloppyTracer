@@ -1,3 +1,5 @@
+//! IRQ handling and global data structures which don't fit anywhere else
+
 use core::{
     cell::{Cell, RefCell},
     future::Future,
@@ -14,15 +16,28 @@ use crate::{
     floppy_control::FloppyControl, flux_reader::FluxReader, flux_writer::FluxWriter, rprintln,
 };
 
+/// Is set to `true` after each index pulse during an IRQ
+/// Useful for waiting for the start of a track
 pub static INDEX_OCCURED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
+/// If set to `true`, transmission of data is immediatly started after an index pulse
 pub static START_TRANSMIT_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+/// If set to `true`, reception of data is immediatly started after an index pulse
 pub static START_RECEIVE_ON_INDEX: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
+/// Instance of the data writing machine
 pub static FLUX_WRITER: Mutex<RefCell<Option<FluxWriter>>> = Mutex::new(RefCell::new(None));
+
+/// Instance of the data reading machine
 pub static FLUX_READER: Mutex<RefCell<Option<FluxReader>>> = Mutex::new(RefCell::new(None));
+
+/// Global instance of slow signal handling
 pub static FLOPPY_CONTROL: Mutex<RefCell<Option<FloppyControl>>> = Mutex::new(RefCell::new(None));
+
+/// Required in IRQ context for disabling the interrupt request.
 pub static IN_INDEX: Mutex<RefCell<Option<Pin<'A', 3>>>> = Mutex::new(RefCell::new(None));
 
+/// Global helper function to stop data reception
 pub fn flux_reader_stop_reception() {
     cortex_m::interrupt::free(|cs| {
         FLUX_READER
@@ -34,6 +49,8 @@ pub fn flux_reader_stop_reception() {
     });
 }
 
+/// Global helper function to asynchronously step to a track and wait until the head
+/// arrives there.
 pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()> {
     cortex_m::interrupt::free(|cs| {
         FLOPPY_CONTROL
@@ -62,6 +79,7 @@ pub fn async_select_and_wait_for_track(track: Track) -> impl Future<Output = ()>
     })
 }
 
+/// Global helper function to wait until we have passed the index pulse
 pub fn async_wait_for_index() -> impl Future<Output = Result<(), ()>> {
     cortex_m::interrupt::free(|cs| {
         INDEX_OCCURED.borrow(cs).set(false);
@@ -90,6 +108,7 @@ pub fn async_wait_for_index() -> impl Future<Output = Result<(), ()>> {
     })
 }
 
+/// Global helper function for waiting until we've started to transmit data
 pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
     poll_fn(|_| {
         let (transmission_active, motor_spinning) = cortex_m::interrupt::free(|cs| {
@@ -119,6 +138,7 @@ pub fn async_wait_for_transmit() -> impl Future<Output = Result<(), ()>> {
     })
 }
 
+/// Global helper function for waiting until we've started to receive data
 pub fn async_wait_for_receive() -> impl Future<Output = Result<(), ()>> {
     poll_fn(|_| {
         let (transmission_active, motor_spinning) = cortex_m::interrupt::free(|cs| {

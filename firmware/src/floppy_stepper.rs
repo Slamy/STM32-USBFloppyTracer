@@ -1,3 +1,5 @@
+//! Algorithms for correctly timed stepping of the head
+
 use core::convert::Infallible;
 
 use alloc::boxed::Box;
@@ -9,6 +11,7 @@ use unwrap_infallible::UnwrapInfallible;
 
 use crate::floppy_drive_unit::HeadPosition;
 
+/// Collects all required GPIOs for head stepping related activities
 pub struct FloppyStepperSignals {
     out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
     out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
@@ -36,6 +39,7 @@ async fn wait_for_head_to_settle() {
 
 impl FloppyStepperSignals {
     #[must_use]
+    /// Constructs with injected dependencies
     pub fn new(
         out_step_direction: Box<dyn StatefulOutputPin<Error = Infallible> + Send>,
         out_step_perform: Box<dyn OutputPin<Error = Infallible> + Send>,
@@ -47,6 +51,7 @@ impl FloppyStepperSignals {
             in_track_00,
         }
     }
+
     async fn set_direction(&mut self, direction: StepDirection) {
         let state = match direction {
             StepDirection::Inward => PinState::Low,
@@ -63,6 +68,10 @@ impl FloppyStepperSignals {
         cassette::yield_now().await;
     }
 
+    /// Asynchronous function for stepping the head to a provided cylinder.
+    /// If the current position of the Head is not known, the function
+    /// will first step outside until the first cyclinder is detected.
+    /// Will return with the current head position upon arrival
     pub async fn step_to_cylinder(
         mut self,
         current_position: HeadPosition,
